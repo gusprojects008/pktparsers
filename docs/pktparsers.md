@@ -13,7 +13,7 @@ Esta seção contém percepções coletadas durante o desenvolvimento; nenhuma e
 * Exemplo
 
 ## Explicações e esclarecimentos
-* Exemplo 
+* A estrutura de summary vai ser de acordo com a PDU específica da camada ou padrão específico.
 
 # Decisões de arquitetura pendentes:
 * Exemplo

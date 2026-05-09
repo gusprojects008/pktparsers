@@ -32,19 +32,19 @@ ff:ff:ff:ff:ff:ff        1  <Broadcast>         0.185414       0.000000      0  
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
 Atualmente minha ideia é:
-Um programa como framenisff decicide criar uma função de sniff que abre um socket de captura de frames DLT_IEEE802_11_RADIO, e decide utilizar pktparsers para parsear cada frame capturado.
-Mas outros módulos podem acessar acessar funções de módulos específicos de parse.
+Um programa como framenisff decide criar uma função de sniff que abre um socket de captura de frames DLT_IEEE802_11_RADIO, e decide utilizar pktparsers para parsear cada frame capturado.
+Mas outros módulos poderão acessar acessar funções de módulos específicos de parse do pktparsers.
 
-A questão é agora estou pensando em implementar:
+A questão é que agora estou pensando em implementar:
 As estruturas de Summary que acho que vou ter que implementar (através de dataclass):
 FrameSummary (l2)
-PacketSummary (l3) quando o parse do camada 3 for chamado
+PacketSummary (l3)
 SegmentSummary (l4)
 DataSummary (l5, l6, l7)
 TrafficSummary
 
 Estrutura que irá ser populada em TrafficSummary:
-DeviceEntry: ainda estou em dúvida sobre como irei estruturar ele, pois não sei se crio uma estrutura DeviceEntry universal, que irá estruturar todos os dados relevantes através de qualquer função utilizada em TrafficContext para criar DeviceEntry através das Entruturas de Summary que ela está preparada para lidar dentro do frame parseado.
+DeviceEntry: ainda estou em dúvida sobre como irei estruturar ele, pois não sei se crio uma estrutura DeviceEntry universal, que irá estruturar todos os dados relevantes através de qualquer função utilizada em TrafficContext para criar DeviceEntry através das estruturas de Summary que ela está preparada para lidar dentro ou fora do frame parseado.
 Ou seja, TrafficSummary irá conter várias entradas DeviceEntry, visualmente seria:
 Traffic Summary - wlp0s20f3:
 "ip, mac address, ou qualquer outro endereço principal relacionado ao dispositivo de acordo com a camada/padrão de comunicação principal sendo capturado através da interface, ou seja, mac address se o sniff for a partir da camada L2, ip se o sniff for a partir da camada L3 ou L4": DeviceEntry
@@ -61,8 +61,9 @@ FrameSummary consome descriptions do resultado do frame ou pacote parseado.
 Mas ainda tenho muitas dúvidas em relação à forma como irei gerar as estruturas de Summary:
 
 Dúvidas em relação a FrameSummary:
-E se ao invés de gerar os descriptions durante o parse de campos específicos, ter uma função para analisar o frame parseado e gerar o FrameSummary diretamente?.
-E se as próprias funções de parse acessassem a variável de dicionário "frame_summary" que está no ParseContext, e essas funções de parse populam os dicionários específicos com os dados importantes, nesse caso, a estrutura de frame_summary deverá ser bem padronizada e documentada. Exemplo, parse de eapol acessa ParseContext.ctx.frame_summary["security"]["eapol"] para incluir diretamente um dicionário com a descrição do conteúdo parseado, mantendo as informações relevantes de forma mais humana, prática e utilizavel por outros módulos e funções.
+E se ao invés de gerar os descriptions durante o parse de campos específicos, para que uma função de Frame ou Packet summary obter eles e gerar as estruturas de summary. Na verdade ter apenas uma função para analisar todo o frame ou pacote parseado e gerar todas as estruturas de Summary?
+A grande é questão é que por exemplo, frames contém payloads, e esse próprios payloads são pacotes que, podem conter segmentos que, podem conter dados. Dessa forma, irei ter uma função única para percorrer todo o frame parseado e gerar esse summaries de acordo com uma analise lógica e conceitual da estrutura do frame ou pacote? ou chamar a função summarie específica dentro do parse da camada específica? exemplo: parse de pacote ARP chama função de summarie de pacote, dessa forma, a estrutura summarie fica disponível diretamente no resultaod final do frame parseado.
+Se for função única, onde ela ficaria? no diretório relacionado ao padrão específico? ou no diretório relacionado à camada de rede?
 
 Dúvidas em relação à TrafficContext:
 A função que irá analisar o frame parseado com as estruturas de Summary, irá ser provavelmente chamada dentro de ParseContext, e ela, irá gerenciar a variável de traffic_context do contexto de TrafficContext criado por uma função ou classe superior.
@@ -107,6 +108,15 @@ class DeviceEntry:
    
 Em "layers: dict = {"l2": {}}" acredito que não necessáriamente "l2" precise ser um dicionário, acho que seria melhor se fosse um dataclass.
 
-DeviceEntry irá agrupar as informações de todas as camadas em uma estrutura abstrata?
-Ou iremos criar uma estrutura abstrata para cada camada?
-Ou iremos manter a estrutura abstrata em device entry, mas manter o dicionário layers contendo as principais informações de cada camada?
+Iremos manter a estrutura abstrata em device entry, mas manter o dicionário layers contendo as principais informações de cada camada?
+
+Dando contexto maior sobre o problema:
+
+Atualmente o repo de pktparsers:
+
+
+Atualmente framesniff:
+
+
+Atualmente wnlpy:
+
