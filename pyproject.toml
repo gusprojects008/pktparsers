@@ -1,0 +1,12 @@
+[project]
+name = "pktparsers"
+version = "1.0.0"
+description = "Parsers for communication standards protocols"
+authors = [{name = "Gustavo Araújo"}]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pktparsers"]
