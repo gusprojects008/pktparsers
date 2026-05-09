@@ -1,0 +1,1053 @@
+User: Avalie meu projeto, leia esses arquivo que estão em docs/ :
+esrutura-de-summaries-de-trafego-e-de-pacotes.txt
+estrutura-tui-de-sniff.txt
+framesniff.md
+
+E veja como posso aplicar as melhorias e funcionalidades que pretendo implementar.
+Compare com projetos profissionais como o wireshark, e me dê conselhos e as formas de implementar o que quero.
+
+Claude: Lendo os documentos de planejamento e o código do projeto para uma análise completa.
+
+O projeto é ambicioso e bem estruturado. Vou dividir a análise em partes.
+
+---
+
+## Avaliação Geral
+
+A arquitetura está bem pensada — layers seguindo o modelo OSI, ParseContext com ContextVar para estado thread-local, dispatcher pattern, filter engine com DSL própria. É um projeto sólido para uma pessoa só. Os maiores gaps em relação ao Wireshark/termshark são na camada de apresentação e na pipeline de análise, não no parsing em si.
+
+---
+
+## 1. Frame Summary (esrutura-de-summaries-de-trafego-e-de-pacotes.txt)
+
+Você está no caminho certo pensando em um dict separado no ParseContext. O Wireshark chama isso de "column data" — é uma estrutura flat extraída do frame parsed para exibição rápida sem reprocessar.
+
+**Como implementar:**
+
+Crie um `FrameSummary` como dataclass e popule ele dentro do `ParseContext` ao final do parse de cada camada:
+
+```python
+# core/common/frame_summary.py
+from dataclasses import dataclass, field
+
+@dataclass
+class FrameSummary:
+    # Radiotap
+    signal_dbm: int | None = None
+    channel: int | None = None
+    rate_mbps: float | None = None
+
+    # MAC
+    frame_type: str | None = None      # "Beacon", "QoS Data", etc
+    src_addr: str | None = None
+    dst_addr: str | None = None
+    bssid: str | None = None
+
+    # L3+
+    protocol: str | None = None        # "EAPOL", "IPv4", "ARP"
+    info: str | None = None            # linha de info estilo wireshark
+    length: int | None = None
+
+    # Classificação de dispositivo
+    device_role: str | None = None     # "AP", "STA", "Unknown"
+    ssid: str | None = None
+    security: str | None = None        # "WPA2-PSK", "WPA3-SAE", etc
+
+    # EAPOL específico
+    eapol_msg: int | None = None       # 1, 2, 3 ou 4
+```
+
+O campo `info` é o mais valioso — é a coluna "Info" do Wireshark. Você monta ela como string legível após o parse completo. Exemplos:
+
+```
+Beacon, SSID="MinhaCasa", ch=6, WPA2-PSK
+EAPOL Key (Message 1 of 4)
+QoS Data, STA → AP, EAPOL Key (Message 2 of 4)
+ARP Who has 192.168.1.1? Tell 192.168.1.100
+```
+
+**Onde popular:** Adicione um método `build_summary(parsed_result) -> FrameSummary` em cada parser relevante, ou centralize num módulo `core/analysis/summarizer.py` que recebe o dict final e extrai o que precisa via `get_nested`. A segunda opção é mais limpa porque não polui os parsers.
+
+---
+
+## 2. TrafficContext (resumo de tráfego agregado)
+
+Este é o equivalente ao painel "Conversations" e "Endpoints" do Wireshark. A ideia do dict no `sniff` está certa.
+
+**Estrutura sugerida:**
+
+```python
+# core/analysis/traffic_context.py
+from dataclasses import dataclass, field
+from collections import defaultdict
+
+@dataclass  
+class DeviceEntry:
+    addr: str
+    vendor: str | None = None
+    role: str = "unknown"          # "ap", "sta", "unknown"
+    ssid: str | None = None        # se for AP
+    associated_bssid: str | None = None  # se for STA
+    security: str | None = None
+    
+    frames_sent: int = 0
+    frames_recv: int = 0
+    bytes_sent: int = 0
+    last_seen: float = 0.0
+    channels_seen: set = field(default_factory=set)
+    protocols_seen: set = field(default_factory=set)
+    eapol_handshakes: list = field(default_factory=list)  # para hashcat auto
+
+class TrafficContext:
+    def __init__(self):
+        self.devices: dict[str, DeviceEntry] = {}
+        self.conversations: dict[tuple, dict] = {}  # (src, dst) → stats
+        self._eapol_sessions: dict[str, list] = {}  # bssid → [msg1, msg2, ...]
+    
+    def update(self, summary: FrameSummary, raw_frame: bytes):
+        # atualiza devices, conversations, detecta handshakes EAPOL completos
+        ...
+    
+    def detect_eapol_handshake(self, bssid: str) -> dict | None:
+        # retorna {msg1, msg2, msg3, msg4} se handshake completo
+        ...
+```
+
+A detecção de handshake EAPOL completo aqui resolve aquele TODO do `_build_eapol_line` — você já teria os 4 frames agrupados por BSSID automaticamente.
+
+---
+
+## 3. TUI de Sniff (estrutura-tui-de-sniff.txt)
+
+Você quer algo próximo do termshark. Comparando com ele e o Wireshark, os componentes são:
+
+```
+┌─ toolbar ──────────────────────────────────────────────────────┐
+│ Interface: wlan0 | [▶ Capture] [■ Stop] | Ch: 6 (2.4GHz) | Hop│
+│ Store filter: [___________________] Display: [________________]│
+└────────────────────────────────────────────────────────────────┘
+┌─ packet list (70% da tela) ────────────────────────────────────┐
+│ # │ Time  │ Src          │ Dst          │ Proto │ Info         │
+│ 1 │ 0.000 │ aa:bb:...    │ ff:ff:...    │ Beacon│ SSID="X" ch6 │
+│ 2 │ 0.001 │ ...          │ ...          │ EAPOL │ Msg 1 of 4   │
+└────────────────────────────────────────────────────────────────┘
+┌─ tree view (30% esquerda) ────┐ ┌─ hexdump (30% direita) ──────┐
+│ ▼ Radiotap Header             │ │ 0000  00 00 1a 00 2f 48 00  │
+│   ├ Signal: -31 dBm           │ │ 0007  00 1b 64 14 18 00 00  │
+│   └ Channel: 2412 MHz         │ │ [campo selecionado destacado]│
+│ ▼ MAC Header                  │ │                              │
+│   ├ Type: Data (QoS)          │ └──────────────────────────────┘
+│   └ BSSID: 2e:c9:fb:6b:0c:d1 │
+└───────────────────────────────┘
+```
+
+**Implementação com Textual:**
+
+A parte mais complexa é o sync tree ↔ hexdump (highlight bidirecional). O segredo é que cada nó da tree precisa guardar `(start_byte, end_byte)` do campo no frame raw — você já tem isso no `_metadata_` de cada `unpack`! Isso é uma vantagem enorme que poucos projetos caseiros têm.
+
+```python
+# ao construir a tree node
+TreeNode(
+    label=f"Signal: {value} dBm",
+    data={"start": meta["start"], "end": meta["end"]}
+)
+
+# ao selecionar o nó → highlight no hexdump
+def on_tree_node_selected(self, event):
+    node_data = event.node.data
+    self.hexdump_widget.highlight(node_data["start"], node_data["end"])
+```
+
+O hexdump widget precisa ser customizado — Textual não tem um pronto. Mas é viável como um `Static` ou `RichLog` com spans coloridos usando Rich markup.
+
+---
+
+## 4. EAPOL auto-detect e hashcat automático
+
+O TODO mais concreto. A lógica de detecção de mensagem EAPOL (1, 2, 3, 4) já é possível com os campos que você parseia:
+
+```python
+def classify_eapol_message(eapol: dict) -> int:
+    ki = eapol.get("key_information", {})
+    ack  = ki.get("key_ack", False)
+    mic  = ki.get("key_mic", False)
+    inst = ki.get("install", False)
+    sec  = ki.get("secure", False)
+    enc  = ki.get("encrypted_key_data", False)
+    klen = eapol.get("key_data_length", 0)
+
+    if     ack and not mic and not sec:  return 1  # AP → STA, ANonce
+    if not ack and     mic and not sec:  return 2  # STA → AP, SNonce + MIC
+    if     ack and     mic and inst:     return 3  # AP → STA, GTK cifrado
+    if not ack and     mic and sec:      return 4  # STA → AP, confirmação
+    return 0
+```
+
+Adicione isso ao `FrameSummary.eapol_msg` e o `TrafficContext` agrupa por `(bssid, sta_mac)` automaticamente. Quando tiver msg1 + msg2, você já pode gerar o hashcat 22000 sem precisar que o usuário informe nada — o SSID vem dos beacons/probe responses que o `TrafficContext` já rastreou.
+
+---
+
+## 5. Bugs e inconsistências que vale corrigir agora
+
+**`core/layers/l3/parsers.py`** — as funções `ip`, `arp`, `ipv6` assinam `(frame, offset)` mas o sistema de parse usa `ParseContext` via ContextVar. Elas ficam incompatíveis com o `unpack()` e o `run_dispatch`. Precisam ser refatoradas para usar o padrão `(**kwargs) -> dict` com `unpack` interno, igual aos outros parsers.
+
+**`core/tui/scan_monitor.py`** — `logging` é usado sem ser importado (`for handler in logger.handlers: if isinstance(handler, logging.FileHandler)`) — vai levantar `NameError` em runtime.
+
+**`eapol.py`** — a linha do `key_data` tem lógica redundante:
+```python
+# isso nunca usa o else porque a condição é always True quando chega aqui
+result["key_data"] = unpack(fmt, parser=tagged_parameters) if not encrypted_key_data else unpack(fmt)
+```
+O `if not encrypted_key_data:` já protege o bloco externo. Remover o ternário interno.
+
+**`_parse_fmt_tokens`** — o `lru_cache` vai crescer indefinidamente com fmts dinâmicos como `f"{key_data_len}s"`. Considere um `maxsize` mais conservador ou separar fmts estáticos dos dinâmicos.
+
+---
+
+## Prioridade de implementação sugerida
+
+Começando pelo que dá mais retorno imediato:
+
+1. `classify_eapol_message()` + `FrameSummary.eapol_msg` — resolve o TODO de hashcat auto e melhora a TUI
+2. Corrigir os bugs acima, especialmente `NameError` no scan_monitor
+3. Refatorar `l3/parsers.py` para usar o padrão ParseContext
+4. `FrameSummary` com campo `info` — habilita a coluna principal da packet list
+5. `TrafficContext` com agrupamento de handshakes
+6. TUI de sniff com packet list primeiro, tree/hexdump depois
+
+O projeto tem uma base técnica melhor do que muitos projetos open source nessa área. O ParseContext com metadata de offset é o que vai tornar o highlight tree↔hexdump possível sem gambiarras.
+
+User: Sobre as estruturas FrameSummary, TrafficContex, DeviceEntry:
+É interessante pois o projeto foca em fazer capturas de trafégo sempre começando da menor camada através de um socket bruto. Pois futuramente vou implementar a funcionalidade de descriptografia de payloads LLC e das outras camadas superiores.
+A questão é que estou pensando em estruturas reutilizaveis, e não sejam para um padrão ou protocolo específico. A estrutura que você propôs, servem apenas para frames IEEE80211.
+então quero criar uma estrutura que permita agrupar multiplas estruturas, mesmo que no momento eu não tenha suporte para as camadas superiores.
+Isso se aplica à device entry, por exemplo, futuramente penso em poder obter versão e hostname do sistema operacional do dispositivo, e buscar ele em um arquivo csv de CVEs conhecidas relacionadas. Isso também aconteceria no caso de um IP em específico, futuramente quero ter a possibilidade de poder buscar informações sobre ele
+Sobre a função de detectar tipos de frames eapol:
+def classify_eapol_message(eapol: dict) -> int:
+    ki = eapol.get("key_information", {})
+    ack  = ki.get("key_ack", False)
+    mic  = ki.get("key_mic", False)
+    inst = ki.get("install", False)
+    sec  = ki.get("secure", False)
+    enc  = ki.get("encrypted_key_data", False)
+    klen = eapol.get("key_data_length", 0)
+    if     ack and not mic and not sec:  return 1  # AP → STA, ANonce
+    if not ack and     mic and not sec:  return 2  # STA → AP, SNonce + MIC
+    if     ack and     mic and inst:     return 3  # AP → STA, GTK cifrado
+    if not ack and     mic and sec:      return 4  # STA → AP, confirmação
+    return 0
+Mas e se eu seguisse um novo padrão, implementando um "description": {} em cada resultado de parse, com as informações relevantes, descrevendo o que os valores querem dizer, como: qual é o tipo de mensagem eapol, informaçoes de segurança sobre a rede (Criptografia etc...). Dessa forma, a função "parse" principal de um padrão específico, vai se tornar um parser completo, não apenas um pase binário simples.
+
+Claude: Ótima linha de raciocínio. Vou detalhar as duas questões separadamente.
+
+---
+
+## 1. Estruturas genéricas e reutilizáveis
+
+A chave é pensar em camadas de abstração. Em vez de uma estrutura achatada específica para 802.11, você quer algo que reflita o próprio modelo OSI — onde cada camada contribui com o que sabe, e camadas superiores podem enriquecer o que camadas inferiores começaram.
+
+```python
+# core/analysis/context.py
+
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class LayerSummary:
+    """
+    O que uma camada específica sabe sobre o frame/dispositivo.
+    Cada parser popula a camada correspondente.
+    """
+    layer: int                        # 1, 2, 3, 4, 7...
+    protocol: str | None = None       # "IEEE802.11", "IPv4", "TCP", "EAPOL"
+    info: str | None = None           # linha de info legível (estilo wireshark)
+    fields: dict[str, Any] = field(default_factory=dict)  # campos relevantes flat
+    # fields exemplos:
+    # L2 80211: {"src": "aa:bb:..", "dst": "..", "bssid": "..", "frame_type": "Beacon"}
+    # L3 IPv4:  {"src_ip": "1.2.3.4", "dst_ip": "..", "ttl": 64, "proto": 6}
+    # L4 TCP:   {"src_port": 443, "dst_port": 52000, "flags": "SYN"}
+    # L7 HTTP:  {"method": "GET", "host": "example.com", "path": "/"}
+
+@dataclass
+class FrameSummary:
+    """
+    Resumo completo de um frame, independente de protocolo.
+    Construído progressivamente à medida que cada camada é parseada.
+    """
+    dlt: str | None = None
+    length: int = 0
+    timestamp: float = 0.0
+    counter: int = 0
+
+    layers: list[LayerSummary] = field(default_factory=list)
+
+    # campos derivados do conjunto das camadas — preenchidos pelo Summarizer
+    src_addr: str | None = None   # endereço mais relevante de origem (MAC, IP, etc)
+    dst_addr: str | None = None
+    top_protocol: str | None = None   # protocolo mais alto identificado
+    info: str | None = None           # info final combinada
+
+    # metadados de segurança — qualquer camada pode preencher
+    security: dict = field(default_factory=dict)
+    # ex: {"enc": "WPA2", "auth": "PSK", "cipher": "CCMP", "eapol_msg": 2}
+
+    # para highlight tree↔hexdump
+    raw: bytes | None = None
+```
+
+```python
+@dataclass
+class DeviceEntry:
+    """
+    O que sabemos sobre um dispositivo, independente de como o encontramos.
+    Camadas diferentes contribuem com informações diferentes.
+    """
+    # identidade — múltiplos identificadores possíveis
+    identifiers: dict[str, str] = field(default_factory=dict)
+    # ex: {"mac": "aa:bb:..", "ipv4": "192.168.1.5", "ipv6": "fe80::...", "hostname": "..."}
+
+    vendor: str | None = None     # via OUI lookup
+    os_info: dict = field(default_factory=dict)
+    # ex: {"name": "Linux", "version": "6.x", "ttl_hint": 64, "source": "ttl"}
+    # futuramente: {"name": "Windows 11", "source": "dhcp_fingerprint"}
+
+    # papel na rede — pode ser refinado por camadas superiores
+    roles: set[str] = field(default_factory=set)
+    # ex: {"ap", "dhcp_server"} ou {"sta", "http_client"}
+
+    # 802.11 específico — None se não for wireless
+    wireless: dict | None = None
+    # ex: {"ssid": "MinhaCasa", "bssid": "aa:..", "security": "WPA2-PSK",
+    #      "channel": 6, "signal_dbm": -45, "eapol_handshakes": [...]}
+
+    # IP específico — None se não tivermos L3
+    network: dict | None = None
+    # ex: {"ipv4": "192.168.1.5", "ipv6": None, "open_ports": [80, 443],
+    #      "geo": None, "asn": None}  # geo/asn futuramente via API
+
+    # CVEs e vulnerabilidades — populado futuramente
+    vulnerabilities: list[dict] = field(default_factory=list)
+    # ex: [{"cve": "CVE-2021-xxxx", "desc": "...", "severity": "HIGH", "source": "os_version"}]
+
+    # estatísticas
+    frames_sent: int = 0
+    frames_recv: int = 0
+    bytes_sent: int = 0
+    bytes_recv: int = 0
+    first_seen: float = 0.0
+    last_seen: float = 0.0
+    protocols_seen: set[str] = field(default_factory=set)
+    channels_seen: set[int] = field(default_factory=set)
+```
+
+```python
+class TrafficContext:
+    """
+    Estado global de uma captura. Agnóstico de protocolo.
+    Cada DLT/protocolo contribui via métodos específicos.
+    """
+    def __init__(self):
+        self.devices: dict[str, DeviceEntry] = {}
+        # chave: identificador primário (mac, ip, etc)
+
+        self.conversations: dict[tuple[str,str], ConversationEntry] = {}
+        # chave: (addr_a, addr_b) normalizado (menor primeiro)
+
+        self._protocol_sessions: dict[str, dict] = {}
+        # namespace por protocolo para estado temporário
+        # ex: {"eapol": {"aa:bb..": [msg1, msg2]}, "tcp": {...}}
+
+    def get_or_create_device(self, identifier: str) -> DeviceEntry:
+        if identifier not in self.devices:
+            self.devices[identifier] = DeviceEntry(
+                identifiers={},
+                first_seen=time.time()
+            )
+        return self.devices[identifier]
+
+    def merge_identifiers(self, known_id: str, new_id_type: str, new_id_val: str):
+        """
+        Quando descobrimos que mac X tem IP Y, unificamos as entradas.
+        """
+        device = self.devices.get(known_id)
+        if device:
+            device.identifiers[new_id_type] = new_id_val
+            # cria alias para o novo identificador apontar para o mesmo objeto
+            self.devices[new_id_val] = device
+
+    def update(self, summary: FrameSummary):
+        # cada DLT tem seu updater — o TrafficContext delega
+        updater = _TRAFFIC_UPDATERS.get(summary.dlt)
+        if updater:
+            updater(self, summary)
+
+# registro de updaters por DLT — extensível
+_TRAFFIC_UPDATERS: dict[str, callable] = {}
+
+def register_traffic_updater(dlt: str):
+    def decorator(fn):
+        _TRAFFIC_UPDATERS[dlt] = fn
+        return fn
+    return decorator
+
+# em core/analysis/updaters/dot11.py:
+@register_traffic_updater("DLT_IEEE802_11_RADIO")
+def _update_dot11(ctx: TrafficContext, summary: FrameSummary):
+    # extrai do summary.layers e atualiza ctx.devices
+    ...
+
+# futuramente em core/analysis/updaters/en10mb.py:
+@register_traffic_updater("DLT_EN10MB")
+def _update_ethernet(ctx: TrafficContext, summary: FrameSummary):
+    ...
+```
+
+O ponto chave é `merge_identifiers` — quando um parser L3 descobre que `mac=aa:bb` tem `ip=192.168.1.5`, você unifica as entradas sem duplicar. Os dois identificadores passam a apontar para o mesmo `DeviceEntry`.
+
+---
+
+## 2. O campo `description` nos parsers
+
+A ideia é excelente e resolve um problema real: o parse binário hoje produz campos corretos mas mudos. Adicionar `description` torna o parser uma fonte de conhecimento, não só de decodificação.
+
+A questão é onde colocar esse conhecimento sem poluir o resultado de `unpack` e sem acoplar os parsers à lógica de análise. A solução mais limpa é separar em dois níveis:
+
+**Nível 1 — `parsed`**: o que os bits significam (já existe)
+
+**Nível 2 — `description`**: o que o conjunto de valores implica (novo)
+
+```python
+# estrutura de retorno proposta para parsers que produzem description
+
+{
+    "_metadata_": {...},           # já existe — offsets, raw, fmt
+    "value": {...},                # já existe — bytes brutos
+    "parsed": {...},               # já existe — campos decodificados
+    "description": {               # novo — interpretação semântica
+        "summary": str,            # uma linha, estilo coluna Info do wireshark
+        "details": dict,           # detalhes estruturados para a TUI
+        "flags": list[str],        # lista de flags relevantes para análise
+    }
+}
+```
+
+Para o EAPOL, ficaria assim:
+
+```python
+# em eapol.py, dentro do _parser, após montar result:
+
+def _describe_eapol(parsed: dict, eapol_msg: int) -> dict:
+    ki = parsed["key_information"]
+    enc = "WPA3" if parsed["authentication_version"] == 3 else \
+          "WPA2/RSN" if parsed["authentication_version"] == 2 else "WPA1"
+
+    kd_ver = ki["key_descriptor_version"]["value"]
+    cipher_desc = {
+        1: "RC4 (WPA1/TKIP)",
+        2: "AES-CCM (WPA2/CCMP)",
+        3: "AES-GCM (WPA3/GCMP)"
+    }.get(kd_ver, f"unknown({kd_ver})")
+
+    msg_desc = {
+        1: "AP → STA: ANonce (início do 4-way handshake)",
+        2: "STA → AP: SNonce + MIC (resposta com credencial)",
+        3: "AP → STA: GTK cifrado (instalação de chave)",
+        4: "STA → AP: Confirmação (handshake completo)",
+    }.get(eapol_msg, "Mensagem EAPOL desconhecida")
+
+    flags = []
+    if eapol_msg in (1, 2):
+        flags.append("HANDSHAKE_CAPTURABLE")   # par M1+M2 → hashcat 22000
+    if ki.get("encrypted_key_data"):
+        flags.append("KEY_DATA_ENCRYPTED")
+    if not ki.get("key_mic") and eapol_msg == 1:
+        flags.append("NO_MIC")                 # esperado no msg1
+
+    return {
+        "summary": f"EAPOL Key (Message {eapol_msg} of 4) [{enc}]",
+        "details": {
+            "message": eapol_msg,
+            "encryption": enc,
+            "cipher_suite": cipher_desc,
+            "direction": "AP→STA" if eapol_msg in (1, 3) else "STA→AP",
+        },
+        "flags": flags
+    }
+
+# no _parser do eapol, ao final:
+eapol_msg = classify_eapol_message(result)
+result["description"] = _describe_eapol(result, eapol_msg)
+```
+
+Para um beacon 802.11:
+
+```python
+def _describe_beacon(parsed: dict) -> dict:
+    security = _extract_security_from_rsn(parsed)  # já feito no scan_monitor
+    ssid = get_nested("tp.ssid.data", parsed) or "<hidden>"
+    channel = get_nested("tp.current_channel", parsed)
+
+    return {
+        "summary": f'Beacon, SSID="{ssid}", ch={channel}, {security}',
+        "details": {
+            "ssid": ssid,
+            "channel": channel,
+            "security": security,
+            "capabilities": parsed.get("fp", {}).get("capabilities_information", {}),
+        },
+        "flags": ["HIDDEN_SSID"] if not get_nested("tp.ssid.data", parsed) else []
+    }
+```
+
+**Como integrar com FrameSummary sem duplicar lógica:**
+
+O `description.summary` de cada parser *é* o `LayerSummary.info`. O Summarizer apenas coleta:
+
+```python
+# core/analysis/summarizer.py
+
+def build_frame_summary(parsed_result: dict, dlt: str) -> FrameSummary:
+    summary = FrameSummary(dlt=dlt)
+
+    # cada camada contribui se tiver description
+    for layer_key, layer_data in parsed_result.items():
+        desc = get_nested(f"{layer_key}.parsed.description", parsed_result)
+        if desc:
+            summary.layers.append(LayerSummary(
+                layer=_layer_number(layer_key),
+                protocol=_protocol_name(layer_key),
+                info=desc.get("summary"),
+                fields=desc.get("details", {})
+            ))
+            # flags de segurança sobem para o FrameSummary
+            for flag in desc.get("flags", []):
+                summary.security[flag] = True
+
+    # info final = info da camada mais alta
+    if summary.layers:
+        summary.info = summary.layers[-1].info
+
+    return summary
+```
+
+---
+
+## Fluxo completo integrado
+
+```
+parse(frame)
+    └─> cada parser produz {parsed, description}
+            └─> Summarizer.build_frame_summary()
+                    └─> FrameSummary com layers populadas
+                            └─> TrafficContext.update(summary)
+                                    └─> DeviceEntry atualizada
+                                            └─> flags HANDSHAKE_CAPTURABLE
+                                                    └─> Hashcat.auto_generate()
+```
+
+Isso resolve os TODOs encadeados: detecção automática de handshake, extração de SSID do beacon correspondente, e geração do arquivo hashcat sem intervenção do usuário — tudo emergindo naturalmente da estrutura, não de lógica ad-hoc espalhada.
+
+User: ¿
+
+Claude: 
+
+User: Estou pensando em adicionar "description" em metadata.
+Estou pensando em como posso adicionar o caminho para esse campo em específico sendo parseado no momento, para  o usuário possa copiar o campo como filter, e assim obter o caminho completo para ele no dicionário do frame parseado.
+Estou pensando em mudar o nome das 3 chaves principais, quero adicionar "_" no inicio  e fim de cada uma dessas 3 chaves, para seguir o padrão de indicar que são chaves internas do programa.
+
+[Pasted content (7933 bytes)]
+Para aplicar essa funcionalidade de description sugerida, acredito que ser implementada na função unpack.
+A minha função de unpack atualmente:
+def _add_metadata(raw: bytes, start_offset: int, end_offset: int, fmt: str | dict, tokens: str | dict, sizes: int | dict, size: int):
+    raw_hex = raw[start_offset:end_offset].hex()
+    length = end_offset - start_offset
+    return {
+        "_metadata_": {
+            "start": start_offset,
+            "end": end_offset,
+            "length": length,
+            "raw": raw_hex,
+            "fmt": fmt,
+            "size": size,
+            "sizes": tokens
+        }
+    }
+
+def unpack(fmt: str = None, parser: callable = None, **kwargs) -> dict:
+    def value_to_dict(value):
+        return {i: v for i, v in enumerate(value)} if isinstance(value, tuple) else value
+
+    result = {}
+
+    ctx = ParseContext.current()
+    raw = ctx.frame
+    offset = ctx.offset
+    start = offset
+    fmt = (fmt or f"{len(raw) - start}s").replace(" ", "")
+    sizes, tokens, s = _parse_fmt_tokens(fmt)
+    size = s.size
+
+    fmt = value_to_dict(fmt)
+    sizes = value_to_dict(sizes)
+    tokens = value_to_dict(tokens)
+    future_offset = start + size
+    result.update(_add_metadata(raw, start, future_offset, fmt, tokens, sizes, size))
+
+    if offset + size > len(raw):
+        logger.debug(f"Truncated raw: start_offset={offset} fmt={fmt} sizes={sizes} size={size}")
+        return fail(result, future_offset, "Unpack error truncated")
+
+    value = s.unpack_from(raw, offset)
+
+    value = value[0] if len(value) == 1 else value
+
+    ctx.offset = future_offset
+
+    result["value"] = value_to_dict(value)
+
+    if parser:
+        result["parsed"] = parser(value, **kwargs)
+
+    return result
+
+
+
+
+Não sei como eu poderia aplicar esse mecanismo de descriptions nesse casos:
+casos de chamadas de unpack:
+def parser(**kwargs) -> dict:
+    def _parser(value: tuple, **kwargs) -> dict:
+        ctx = ParseContext.current()
+        frame_len = len(ctx.frame)
+        rth_version, rth_pad, rth_length = value
+
+        result = {
+            "version": rth_version,
+            "pad": rth_pad,
+            "length": rth_length,
+        }
+
+        if rth_version != 0 or rth_length > frame_len:
+            logger.debug(f"Radiotap: invalid header ver={rth_version} len={rth_length} frame_len={frame_len}")
+            return fail(result, rth_length, "Invalid radiotap header")
+
+        present_bitmaps = {}
+        combined_present = 0
+
+        try:
+            for word_index in range(32):
+                present_data = unpack("<I", parser=lambda v, **kw: v)
+                word_val = present_data["parsed"]
+                present_bitmaps[word_index] = word_val
+
+                combined_present |= (word_val & 0x7FFFFFFF)
+
+                if not (word_val & (1 << 31)):
+                    break
+
+        except Exception as e:
+            logger.debug(f"Radiotap: error reading present bitmaps: {e}")
+            result["present_bitmaps"] = present_bitmaps
+            return fail(result, rth_length, "Invalid radiotap header")
+
+        result["present_bitmaps"] = present_bitmaps
+
+        for bit_index in range(29):
+            if not (combined_present & (1 << bit_index)):
+                continue
+            if bit_index not in _FIELD_BY_BIT:
+                logger.debug(f"Radiotap: unknown bit {bit_index} at offset {ctx.offset}, stopping")
+                break
+              
+            name, fmt, alignment, pfunc = _FIELD_BY_BIT[bit_index]
+
+            try:
+                if alignment > 1:
+                    pad = (alignment - (ctx.offset % alignment)) % alignment
+                    ctx.offset += pad
+
+                field_result = unpack(fmt, parser=pfunc)
+
+                if pfunc is None:
+                    result[name] = field_result["value"]
+                else:
+                    result.update(field_result["parsed"])
+            except Exception as e:
+                logger.debug(
+                    f"Radiotap: error parsing field bit={bit_index} name={name}: {e}"
+                )
+                break
+
+        ctx.offset = min(rth_length, frame_len)
+        return result
+
+    result = {}
+
+    try:
+        result = unpack("<BBH", parser=_parser)
+    except Exception as e:
+        logger.debug(f"Parser radiotap header error: {e}")
+
+    return result
+
+
+Parse de subtipos de frames management:
+
+def mgmt_beacon(**kwargs) -> dict:
+    fp = fixed_parameters()
+    tp = tagged_parameters()
+    return {
+        "fp": fp,
+        "tp": tp
+    }
+
+def mgmt_probe_response(**kwargs) -> dict:
+    fp = fixed_parameters()
+    tp = tagged_parameters()
+    return {
+        "fp": fp,
+        "tp": tp
+    }
+
+def mgmt_atim(**kwargs) -> dict:
+    return unpack("<H", parser=lambda v: {"aid": v & 0x3FFF})
+
+def mgmt_disassociation(**kwargs) -> dict:
+    return unpack("<H", parser=lambda v: {"reason_code": v})
+
+def mgmt_deauthentication(**kwargs) -> dict:
+    return mgmt_disassociation()
+
+def mgmt_authentication(**kwargs) -> dict:
+    def _parser(value: tuple, **k) -> dict:
+        alg, seq, status = value
+        
+        ctx = ParseContext.current()
+
+        res = {
+            "auth_algorithm": alg,
+            "auth_sequence": seq,
+            "status_code": status,
+        }
+
+        if ctx.offset < len(ctx.frame):
+            res["tp"] = tagged_parameters()
+            
+        return res
+
+    return unpack("<HHH", parser=_parser)
+
+
+
+
+Mac header:
+
+def parser(**kwargs) -> dict:
+    logger.debug("MAC Header parse")
+
+    def _parser(fc_val: int, **k) -> dict:
+        protocol_version = fc_val & 0b11
+        f_type = (fc_val >> 2) & 0b11
+        f_subtype = (fc_val >> 4) & 0b1111
+        to_ds = (fc_val >> 8) & 1
+        from_ds = (fc_val >> 9) & 1
+        protected = bool(fc_val & 0x4000)
+        
+        type_name = FRAME_TYPES.get(f_type)
+        subtype_name = FRAME_SUBTYPES.get(f_type, {}).get(f_subtype)
+        is_qos = f_type == DATA and bool(f_subtype & 0b1000)
+
+        duration = unpack("<H")
+        
+        addr1 = read_mac()
+        
+        addr2 = addr3 = addr4 = seq = qos = None
+
+        if f_type == CTRL:
+            if f_subtype in (CTRL_BLOCK_ACK_REQUEST, CTRL_BLOCK_ACK, CTRL_PS_POLL, 
+                             CTRL_RTS, CTRL_CF_END, CTRL_CF_END_ACK):
+                addr2 = read_mac() 
+        else:
+            addr2 = read_mac() 
+            addr3 = read_mac() 
+            seq = unpack("<H", parser=lambda v, **k: v >> 4)
+
+            if to_ds and from_ds:
+                addr4 = read_mac() 
+
+        ra = addr1
+        ta = addr2 if addr2 else None
+        a3 = addr3 if addr3 else None
+        a4 = addr4 if addr4 else None
+
+        sa = da = bssid = None
+        if to_ds == 0 and from_ds == 0:
+            sa, da, bssid = ta, ra, a3
+        elif to_ds == 0 and from_ds == 1:
+            sa, da, bssid = a3, ra, ta
+        elif to_ds == 1 and from_ds == 0:
+            sa, da, bssid = ta, a3, ra
+        elif to_ds == 1 and from_ds == 1:
+            sa, da, bssid = a4, a3, None
+
+        # QoS Control
+        if is_qos:
+            qos = unpack("<H")
+
+        return {
+            "fc": {
+                "protocol_version": protocol_version,
+                "type": f_type,
+                "type_name": type_name,
+                "subtype": f_subtype,
+                "subtype_name": subtype_name,
+                "tods": to_ds,
+                "fromds": from_ds,
+                "protected": protected,
+            },
+            "duration_id": duration,
+            "ra": ra, "ta": ta, "sa": sa, "da": da, "bssid": bssid,
+            "sequence_number": seq,
+            "qos_control": qos
+        }
+
+    result = {}
+
+    try:
+        result = unpack("<H", parser=_parser)
+    except Exception as e:
+        logger.debug(f"MAC Header parser error: {e}")
+
+    return result
+
+
+
+
+Estou pensando em extender unpack para:
+unpack(fmt: str = None, parser: callable = None, generate_description: callable = None, **kwargs) 
+[End Pasted content]
+
+Claude: Boas ideias. Vou organizar os três pontos juntos porque eles se influenciam.
+
+---
+
+## 1. Renomear as chaves internas
+
+Simples e faz sentido. O padrão `_key_` já é reconhecido como "interno" em Python:
+
+```python
+# antes          →  depois
+"_metadata_"     →  "_meta_"      # mais curto, já tem os underscores
+"value"          →  "_value_"
+"parsed"         →  "_parsed_"
+```
+
+O impacto é grande — toda referência em `filter_engine.py`, `user_operations.py`, `get_nested` e os parsers precisam ser atualizadas. Vale fazer isso num commit isolado com busca global antes de adicionar os novos campos.
+
+---
+
+## 2. Path como filter (campo `_path_`)
+
+Essa é a funcionalidade mais valiosa para a TUI — o usuário clica num campo na tree e o caminho aparece no input de filtro, igual ao Wireshark.
+
+O problema é que o caminho de um campo só existe no contexto de quem chamou o `unpack` — a função em si não sabe onde vai parar no dicionário final. A solução é passar o path explicitamente:
+
+```python
+def unpack(
+    fmt: str = None,
+    parser: callable = None,
+    description: callable = None,
+    path: str | None = None,     # novo
+    **kwargs
+) -> dict:
+```
+
+E no `_add_metadata`:
+
+```python
+def _add_metadata(..., path: str | None):
+    return {
+        "_meta_": {
+            "start": start_offset,
+            "end": end_offset,
+            "length": length,
+            "raw": raw_hex,
+            "fmt": fmt,
+            "size": size,
+            "sizes": tokens,
+            "path": path,          # novo — pode ser None
+        }
+    }
+```
+
+Nos parsers, quem conhece o path é o caller — então você passa no ponto de chamada:
+
+```python
+# mac_header.py
+duration = unpack("<H", path="mac_hdr.duration_id")
+addr1 = read_mac()   # read_mac também precisa aceitar path
+
+# eapol.py
+result = unpack(fmt, parser=_parser, path="body.llc._parsed_.eapol")
+```
+
+O problema real é que para campos aninhados profundos, montar o path na mão em cada `unpack` é verboso e frágil — se você renomear uma chave, os paths hardcoded ficam errados.
+
+**Solução melhor: path automático via ParseContext**
+
+Em vez de passar o path manualmente, o `ParseContext` rastreia o caminho atual à medida que os parsers vão sendo chamados:
+
+```python
+class ParseContext:
+    def __init__(self, frame: bytes, start_offset: int = 0):
+        self.frame = frame
+        self.offset = start_offset
+        self.result = {}
+        self._token = None
+        self._path_stack: list[str] = []   # novo
+
+    def push_path(self, segment: str):
+        self._path_stack.append(segment)
+
+    def pop_path(self):
+        if self._path_stack:
+            self._path_stack.pop()
+
+    @property
+    def current_path(self) -> str:
+        return ".".join(self._path_stack)
+```
+
+E um context manager para usar nos parsers:
+
+```python
+from contextlib import contextmanager
+
+@contextmanager
+def parse_path(segment: str):
+    ctx = ParseContext.current()
+    if ctx:
+        ctx.push_path(segment)
+    try:
+        yield
+    finally:
+        if ctx:
+            ctx.pop_path()
+```
+
+Nos parsers principais:
+
+```python
+# dot11/parse.py
+with parse_path("rt_hdr"):
+    ctx.set("rt_hdr", radiotap_header.parser())
+
+with parse_path("mac_hdr"):
+    ctx.set("mac_hdr", mac_header.parser())
+
+with parse_path("body"):
+    ctx.set("body", body.parser())
+
+# body.py → data.py → llc/parser.py
+with parse_path("llc"):
+    body["llc"] = llc_parser()
+
+# llc/parser.py → eapol.py
+with parse_path("_parsed_"):
+    with parse_path("eapol"):
+        payload = eapol_parser()
+```
+
+E no `unpack`, o path é lido automaticamente do contexto:
+
+```python
+def unpack(fmt=None, parser=None, description=None, **kwargs):
+    ctx = ParseContext.current()
+    current_path = ctx.current_path if ctx else None
+    
+    # passa para _add_metadata
+    result.update(_add_metadata(..., path=current_path))
+```
+
+Assim `body.llc._parsed_.eapol._meta_.path` contém `"body.llc._parsed_.eapol"` sem nenhum hardcode.
+
+---
+
+## 3. Campo `_description_` no metadata
+
+Com as chaves renomeadas e o path automático, a estrutura completa de `_meta_` fica:
+
+```python
+"_meta_": {
+    "start": int,
+    "end": int,
+    "length": int,
+    "raw": str,          # hex
+    "fmt": str | dict,
+    "size": int,
+    "sizes": str | dict,
+    "path": str | None,
+    "description": str | None    # novo — linha legível sobre este campo
+}
+```
+
+O `description` aqui é diferente do `description` semântico que discutimos antes — este é a descrição do **campo individual** (nível `unpack`), não do frame inteiro. Por exemplo:
+
+```
+_meta_.description = "Frame Check Sequence — 4 bytes, little-endian CRC32"
+_meta_.description = "Key MIC — HMAC-SHA1-128 do handshake EAPOL"  
+_meta_.description = "Duration/ID — tempo em µs que o meio ficará ocupado"
+```
+
+Para isso, o `unpack` recebe um `description` callable ou string:
+
+```python
+def unpack(
+    fmt: str = None,
+    parser: callable = None,
+    description: str | callable | None = None,
+    **kwargs
+) -> dict:
+    ...
+    # no _add_metadata:
+    desc_text = description(value) if callable(description) else description
+    "_meta_": {
+        ...
+        "description": desc_text
+    }
+```
+
+Nos parsers, você passa a descrição onde faz sentido:
+
+```python
+# mac_header.py
+duration = unpack("<H",
+    descriptor="Duration/ID — tempo em µs reservado no meio")
+
+# eapol.py — description dinâmica baseada no valor
+result = unpack(fmt, parser=_parser,
+    descriptor=lambda v: f"EAPOL Key Frame — versão {v[0]}")
+```
+
+---
+
+## Estrutura final de um campo parseado
+
+```python
+{
+    "_metadata_": {
+        "start": 89,
+        "end": 105,
+        "length": 16,
+        "raw": "ccb5ebbdc7bea0cd40b7b0610da35f2b",
+        "fmt": "!16s",
+        "size": 16,
+        "sizes": "!16s",
+        "path": "body.llc._parsed_.eapol._parsed_.key_mic",
+        "description": "Key MIC — autenticação HMAC do handshake"
+    },
+    "value": b"\xcc\xb5\xeb...",
+    "parsed": "ccb5ebbdc7bea0cd40b7b0610da35f2b",
+    "description": {}
+}
+```

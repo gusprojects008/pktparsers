@@ -1,0 +1,112 @@
+Atualmente estou começando a desenvolver o pktparserss, o módulo de parsers de frames, pacote e campos de rede, ele será utilizado por programas como o framesniff, e por outros módulos como o wnlpy (Wrapper/Wireless Netlink Python) para parsear os blobs retornados por uma mensagem nl80211 de operação de scan. 
+Logo logo vou adaptar o framesniff para utilizar ele.
+
+O que básicamente estou fazendo é mover toda a estrutura de parse criada para o framesniff, para um módulo separado. Para assim, torna-lo reutilizavel em outros projetos.
+
+Mas estou começando a pensar em como posso implementar algumas funcionalidades que vou utilizar no meu framesniff.
+
+Percebi que tenho que tomar algumas decisões, pois notei que todo o meu parse é idealmente voltado para a ideia que tive no começo mas que estou percebendo que provavelmente irei ter que mudar. A ideia de que todo o meu parse e o próprio framesniff irá funcionar apenas para a captura e analise do trafégo de rede e partir da camada 2 (Data Link) em diante.
+
+Mas percebi que como agora estou modularizando o sistema de parse, então meus parsers não devem depender desse padrão de parse, ou seja, do padrão baseado na ideia de receber um frame da menor camada, e ir parseando ele e os seus payloads em diante.
+
+Então provavelmente agora irei ter que adpatar o meu pktparsers para implementar uma função de parse em cada camada ou padrão de comunicação específico, para assim, permitir outros sniffers abrirem sockets de captura em uma interface managed por exemplo, e assim, chamar a função de parse correspondente à camada de captura dela (L3 (ARP, ICMP, etc...) e L4 (TCP, UDP, etc...)), provavelmente tendo que chamar antes, uma função de parse cabeçalho ethernet, para assim chamar a função de parse do protocolo específico do pacote, como ARP, IP, TCP ou UDP.
+
+Quero implementar:
+Traffic Summary, semelhante à WLAN Traffic no wireshark, mas com diferenças.
+
+Estrutura que o wireshark fornece:
+
+===============================================================================================================================================
+Wireless LAN Statistics - wlp0s20f3:
+Address  Channel  SSID  Percent Packets  Percent Retry  Retry  Pkts Sent  Pkts Received  Probe Reqs  Probe Resp  Auths  Deauths  Other  Comment
+-----------------------------------------------------------------------------------------------------------------------------------------------
+28:87:2e:9f:f6:85        0  <Broadcast>         0.061805       0.000000      0          0              1           0           0      0        0      0  Unknown
+28:87:ba:9f:f6:85        1  404wi-fi indisponível        98.269468       0.125786      2       1360            188           0          42      0        0      0  Unknown
+48:22:54:7e:69:48        1  Gisele Matos         0.185414       0.000000      0          3              0           0           0      0        0      0         
+4a:22:54:4e:69:48        1  <Broadcast>         0.432633       0.000000      0          7              0           0           0      0        0      0         
+4a:22:54:5e:69:48        1  <Broadcast>         0.309023       0.000000      0          5              0           0           0      0        0      0         
+80:1f:65:5a:67:95        0  <Broadcast>         0.061805       0.000000      0          0              1           0           0      0        0      0  Unknown
+ee:81:9c:85:b0:dc        0  <Broadcast>         0.185414       0.000000      0          0              3           0           0      0        0      0  Unknown
+ee:81:9c:85:b0:df        0  <Broadcast>         0.309023       0.000000      0          0              5           0           0      0        0      0  Unknown
+ff:ff:ff:ff:ff:ff        1  <Broadcast>         0.185414       0.000000      0          0              0           3           0      0        0      0         
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+Atualmente minha ideia é:
+Um programa como framenisff decicide criar uma função de sniff que abre um socket de captura de frames DLT_IEEE802_11_RADIO, e decide utilizar pktparsers para parsear cada frame capturado.
+Mas outros módulos podem acessar acessar funções de módulos específicos de parse.
+
+A questão é agora estou pensando em implementar:
+As estruturas de Summary que acho que vou ter que implementar (através de dataclass):
+FrameSummary (l2)
+PacketSummary (l3) quando o parse do camada 3 for chamado
+SegmentSummary (l4)
+DataSummary (l5, l6, l7)
+TrafficSummary
+
+Estrutura que irá ser populada em TrafficSummary:
+DeviceEntry: ainda estou em dúvida sobre como irei estruturar ele, pois não sei se crio uma estrutura DeviceEntry universal, que irá estruturar todos os dados relevantes através de qualquer função utilizada em TrafficContext para criar DeviceEntry através das Entruturas de Summary que ela está preparada para lidar dentro do frame parseado.
+Ou seja, TrafficSummary irá conter várias entradas DeviceEntry, visualmente seria:
+Traffic Summary - wlp0s20f3:
+"ip, mac address, ou qualquer outro endereço principal relacionado ao dispositivo de acordo com a camada/padrão de comunicação principal sendo capturado através da interface, ou seja, mac address se o sniff for a partir da camada L2, ip se o sniff for a partir da camada L3 ou L4": DeviceEntry
+
+Mas internamente, provavelmente, TrafficSummary irá ter cada DeviceEntry dentro de um set:
+{DeviceEntry}, {DeviceEntry}, {DeviceEntry} ...
+
+Pensei no fluxo:
+Função sniff de framesniff (por exemplo), ou a classe Dissector ou função dissector de pktparsers, cria TrafficContext.
+TrafficContext usa uma função que consome FrameSummar para criar TrafficSummary.
+TrafficContext consome FrameSummary para criar DeviceEntry.
+FrameSummary consome descriptions do resultado do frame ou pacote parseado.
+
+Mas ainda tenho muitas dúvidas em relação à forma como irei gerar as estruturas de Summary:
+
+Dúvidas em relação a FrameSummary:
+E se ao invés de gerar os descriptions durante o parse de campos específicos, ter uma função para analisar o frame parseado e gerar o FrameSummary diretamente?.
+E se as próprias funções de parse acessassem a variável de dicionário "frame_summary" que está no ParseContext, e essas funções de parse populam os dicionários específicos com os dados importantes, nesse caso, a estrutura de frame_summary deverá ser bem padronizada e documentada. Exemplo, parse de eapol acessa ParseContext.ctx.frame_summary["security"]["eapol"] para incluir diretamente um dicionário com a descrição do conteúdo parseado, mantendo as informações relevantes de forma mais humana, prática e utilizavel por outros módulos e funções.
+
+Dúvidas em relação à TrafficContext:
+A função que irá analisar o frame parseado com as estruturas de Summary, irá ser provavelmente chamada dentro de ParseContext, e ela, irá gerenciar a variável de traffic_context do contexto de TrafficContext criado por uma função ou classe superior.
+A estrutura TrafficSummary vai se global? ou de acordo com a camada ou padrão de comunicação específico?
+
+Será que pktparsers poderá/irá ter funcionar assim?:
+Dissector -> TrafficContext -> ParseContext
+Dessa forma, uma função como sniff do framesniff, irá importar a classe ou função dissector de pktparsers, a função dissector teria a assinatura:
+(dlt: str, packet: bytes, offset: int = 0) "packet" pois dissector não sabe realmente se é frame, pacote, ou segmento, apenas irá chamar o parse completo de acordo com a DLT passada.
+
+A questão é que quero seguir um mesmo padrão de estrutura de parse em cada padrão de comunicação ou camada diferente, tenho que decidir se haverá uma função de parse principal em cada diretório relacionado a um padrão de comunicação específico, ou de acordo com camada de rede.
+ParseContext gera os Summaries através de uma função específica relacionada ao seu padrão de comunicação ou camada na rede, que irá analisar todos os descriptions do frame parseado, ou todo o frame parseado em si (ainda tenho que decidir como vou gerar os Summary de cada frame, pacote, segmento ou dado específico). ParseContext provavelmente irá ter que chamar a funçao responsável por gerenciar a variável de traffic_context, analisando os summaries gerados, criando DeviceEntry de acordo com eles, e populando o traffic_context. Essa função responsável por gerenciar TrafficContext vai ser chamada de acordo com o padrão de comunicação ou camada de rede específica.
+
+Acho que necessário revisarmos o principal objetivo com a ideia de implementar:
+Descrição de conteúdo parseado.
+Resumo do frame.
+Resumo de tráfego. 
+
+Os principais objetivos são:
+Poder criar uma estrutura DeviceEntry que conterá vários dados sobre um dispositivo com base nos frames e pacotes capturados relacionados ao endereço dele.
+Facilitar módulos como scan_monitor.py obterem informações relevantes para exibir na interface TUI. Pois atualmente ele precisa navegar sobre todo o frame parseado e obter cada dado parseado, para interpretar e assim chegar à conclusão de algumas informações. Assim como as funções das classe Hashcat, usadas para gerar linhas utilizadas para brute force pelo hashcat, seria muito mais fácil se houve um description do conteúdo parseado do payload EAPOL, indicando se é frame 1, 2, 3 ou 4. Ou ao invés disso, ter essa informação diretamente em FrameSummary.
+
+Detalhes técnicos importantes:
+Provavelmente TrafficContext armazenará DeviceEntry(s) em sets, pois poderá haver um dispositivo com o mesmo MAC na rede, podendo assim, sobrescrever ou gerar conflito no momento da criação de novos DeviceEntry(s).
+
+As estruturas que andei pensando:
+DeviceEntry:
+from dataclasses import dataclass, field
+from collections import defaultdict
+
+@dataclass  
+class DeviceEntry:
+    addr: str
+    layers: dict = {"l2": {"channel": , "ssid": , "percent_frames": , "percent_retry": , "retry": , "frames_sent"  Pkts Received  Probe Reqs  Probe Resp  Auths  Deauths  Other  Comment, "channels_seen": = field(default_factory=set), "vendor": None, 
+    role: str = "unknown"          # "ap", "sta", "unknown"
+    ssid: str | None = None        # se for AP
+    associated_bssid: str | None = None  # se for STA
+    relationships: dict[str, dict] = {frames}
+    security: dict = None 
+    last_seen: float = 0.0
+    sessions: list = field(default_factory=list)
+   
+Em "layers: dict = {"l2": {}}" acredito que não necessáriamente "l2" precise ser um dicionário, acho que seria melhor se fosse um dataclass.
+
+DeviceEntry irá agrupar as informações de todas as camadas em uma estrutura abstrata?
+Ou iremos criar uma estrutura abstrata para cada camada?
+Ou iremos manter a estrutura abstrata em device entry, mas manter o dicionário layers contendo as principais informações de cada camada?
