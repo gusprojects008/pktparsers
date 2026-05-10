@@ -1,4 +1,4 @@
-from core.layers.l2.ieee802.dot11.parse import parse as dot11_parser
+from pktparsers.layers.l2.ieee802.dot11.parse import parse as dot11_parser
 from pktparsers.common.constants.parsers import *
 
 PROTOCOL_MAP = {

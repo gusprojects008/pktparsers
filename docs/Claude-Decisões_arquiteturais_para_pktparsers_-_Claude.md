@@ -29,25 +29,25 @@ Em vez disso, crie uma função separada que analisa o frame parseado e gera o `
 python
 
 ```python
-# pktparsers/summary/ieee802/dot11/summary.py
+# pktparsers/layers/l2/ieee802/dot11/summary/summary.py
 
 from dataclasses import dataclass, field
 from typing import Optional
 
 @dataclass
-class Dot11FrameSummary:
-    frame_type: str       # "Management", "Control", "Data"
-    subtype: str          # "Beacon", "Probe Request", etc
-    channel: Optional[int] = None
-    ssid: Optional[str] = None
-    bssid: Optional[str] = None
-    sa: Optional[str] = None
-    da: Optional[str] = None
+class FrameSummary:
+    frame_type: int       # "Management", "Control", "Data"
+    frame_subtype: int          # "Beacon", "Probe Request", etc
+    channel: int = None
+    ssid: str = None
+    bssid: dict = None
+    sa: dict = None
+    da: dict = None
     signal_dbm: Optional[int] = None
-    security: dict = field(default_factory=dict)
-    eapol: Optional[dict] = None  # {message: 1|2|3|4, flags: [...]}
+    wps: dict = None
+    eapol: dict = None  # {message: 1|2|3|4, flags: {}}
     
-def summarize_dot11(parsed_frame: dict) -> Dot11FrameSummary:
+def summarize_dot11(parsed_frame: dict) -> FrameSummary:
     rt_hdr = parsed_frame.get("rt_hdr", {}).get("parsed", {})
     mac_hdr = parsed_frame.get("mac_hdr", {}).get("parsed", {})
     body = parsed_frame.get("body", {})
@@ -62,15 +62,15 @@ def summarize_dot11(parsed_frame: dict) -> Dot11FrameSummary:
         if isinstance(payload, dict) and "parsed" in payload:
             eapol_summary = _summarize_eapol(payload["parsed"])
     
-    return Dot11FrameSummary(
-        frame_type=fc.get("type_name", ""),
-        subtype=fc.get("subtype_name", ""),
-        channel=channel.get("channel") if channel else None,
+    return FrameSummary(
+        frame_type=fc.get("frame_type"),
+        subtype=fc.get("frame_subtype"),
+        channel=channel.get("channel"),
         signal_dbm=rt_hdr.get("dbm_antenna_signal"),
-        bssid=_extract_addr(mac_hdr.get("bssid")),
-        sa=_extract_addr(mac_hdr.get("sa")),
-        da=_extract_addr(mac_hdr.get("da")),
-        ssid=_extract_ssid(body),
+        bssid=mac_hdr.get("bssid"),
+        sa=mac_hdr.get("sa"),
+        da=mac_hdr.get("da"),
+        ssid=body,
         eapol=eapol_summary,
     )
 
