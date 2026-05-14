@@ -1,4 +1,746 @@
-Atualmente estou começando a desenvolver o pktparsers, o módulo de parsers de frames, pacote e campos de rede, de diferentes padrões de comunicação diferentes. Ele será utilizado por programas como o framesniff, e por outros módulos como o wnlpy (Wrapper/Wireless Netlink Python) para parsear os blobs retornados por uma mensagem nl80211 de operação de scan. 
+Antes vou passar toda a estrutura e os principais arquivos e funções relacionadas aos meus projetos que, irão utilizar o módulo pktparsers que estou desenvolvendo.
+
+Vou passar as funções estruturas de arquivos e diretórios, para você ter uma maior contexto sobre o problema.
+
+pktparsers atualmente:
+[gus@voidlinux ~/Documents/pktparsers (development)]$ find . -path '*/.git' -prune -o -name '.gitignore' -prune -o -path '*/__pycache__' -prune -o -path '*/docs' -prune -o -print
+.
+./pyproject.toml
+./pktparsers
+./pktparsers/tests
+./pktparsers/tests/wiphy_results.txt
+./pktparsers/tests/netlink_route.py
+./pktparsers/tests/mac_oui_vendors.py
+./pktparsers/tests/socket_function.py
+./pktparsers/tests/struct_test.py
+./pktparsers/tests/interface_network_socket_test.py
+./pktparsers/tests/verify_interface_mode.py
+./pktparsers/tests/getlinks_results.txt
+./pktparsers/tests/nl80211_scan_test.py
+./pktparsers/tests/iw_scan_debugged.txt
+./pktparsers/tests/debugging_mainPy.txt
+./pktparsers/tests/test_pmkid.json
+./pktparsers/tests/get_ifaces_iproute2.py
+./pktparsers/tests/bitmap_key_information.py
+./pktparsers/tests/slice_python.py
+./pktparsers/tests/frames.json
+./pktparsers/tests/random_mac.py
+./pktparsers/tests/set_interface_monitor_iw.py
+./pktparsers/tests/channel_hopping.py
+./pktparsers/tests/netlink_dictionary.txt
+./pktparsers/tests/get_ifaces_psutil.py
+./pktparsers/tests/netlink_nl80211_basic_example.py
+./pktparsers/tests/nl80211_values.cpp
+./pktparsers/tests/mac_converter.py
+./pktparsers/__main__.py
+./pktparsers/__init__.py
+./pktparsers/common
+./pktparsers/common/filter_engine.py
+./pktparsers/common/parser.py
+./pktparsers/common/builder.py
+./pktparsers/common/validation.py
+./pktparsers/common/sockets.py
+./pktparsers/common/mac-vendors-export.json
+./pktparsers/common/__init__.py
+./pktparsers/common/constants
+./pktparsers/common/constants/parsers.py
+./pktparsers/common/constants/hashcat.py
+./pktparsers/common/constants/__init__.py
+./pktparsers/layers
+./pktparsers/layers/l7
+./pktparsers/layers/l7/__init__.py
+./pktparsers/layers/l1
+./pktparsers/layers/l1/__init__.py
+./pktparsers/layers/l3
+./pktparsers/layers/l3/parsers.py
+./pktparsers/layers/l3/__init__.py
+./pktparsers/layers/__init__.py
+./pktparsers/layers/registry.py
+./pktparsers/layers/l4
+./pktparsers/layers/l4/__init__.py
+./pktparsers/layers/l2
+./pktparsers/layers/l2/ieee802
+./pktparsers/layers/l2/ieee802/dot11
+./pktparsers/layers/l2/ieee802/dot11/builders
+./pktparsers/layers/l2/ieee802/dot11/parsers
+./pktparsers/layers/l2/ieee802/dot11/parsers/ies.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/radiotap_header.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/common.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/mac_header.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/control.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/body.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/management.py
+./pktparsers/layers/l2/ieee802/dot11/parsers/data.py
+./pktparsers/layers/l2/ieee802/dot11/build.py
+./pktparsers/layers/l2/ieee802/dot11/constants.py
+./pktparsers/layers/l2/ieee802/dot11/parse.py
+./pktparsers/layers/l2/ieee802/dot11/__init__.py
+./pktparsers/layers/l2/ieee802/dot3
+./pktparsers/layers/l2/ieee802/dot3/constants.py
+./pktparsers/layers/l2/ieee802/__main__.py
+./pktparsers/layers/l2/ieee802/dot1x
+./pktparsers/layers/l2/ieee802/dot1x/parsers
+./pktparsers/layers/l2/ieee802/dot1x/parsers/radius.py
+./pktparsers/layers/l2/ieee802/dot1x/parsers/eapol.py
+./pktparsers/layers/l2/ieee802/dot1x/parsers/eap.py
+./pktparsers/layers/l2/ieee802/dot1x/constants.py
+./pktparsers/layers/l2/ieee802/dot1x/__init__.py
+./pktparsers/layers/l2/ieee802/llc
+./pktparsers/layers/l2/ieee802/llc/parser.py
+./pktparsers/layers/l2/ieee802/llc/constants.py
+./pktparsers/layers/l2/ieee802/__init__.py
+./pktparsers/layers/l2/constants.py
+./pktparsers/layers/l2/bluetooth
+./pktparsers/layers/l2/bluetooth/att
+./pktparsers/layers/l2/bluetooth/gatt
+./pktparsers/layers/l2/bluetooth/hci
+./pktparsers/layers/l2/bluetooth/hci/parser.py
+./pktparsers/layers/l2/bluetooth/hci/transports
+./pktparsers/layers/l2/bluetooth/hci/transports/h4.py
+./pktparsers/layers/l2/bluetooth/hci/registry.py
+./pktparsers/layers/l2/bluetooth/l2cap
+./pktparsers/layers/l2/bluetooth/__init__.py
+./README.md
+./LICENSE
+
+Função get_nested dentro de pktparsers/pktparsers/common/filter_engine.py:
+def get_nested(path: str, dct: dict, default=None):
+    keys = path.split(".")
+    current = dct
+    i = 0
+
+    if isinstance(current, dict) and "parsed" in current:
+        current = current["parsed"]
+
+    while i < len(keys):
+        if not isinstance(current, dict):
+            return default
+
+        key = keys[i]
+        key_lower = str(key).lower()
+        found = False
+
+        for dct_key, dct_value in current.items():
+            if str(dct_key).lower() == key_lower:
+                current = dct_value
+                found = True
+                break
+
+        if not found and _is_numeric_dict(current):
+            result = _search_in_numeric_dict(current, keys[i:])
+            return result if result is not None else default
+
+        if not found:
+            return default
+
+        if isinstance(current, dict) and "parsed" in current:
+            next_key = keys[i + 1] if i + 1 < len(keys) else None
+            if next_key is None or str(next_key).lower() not in ("parsed", "value", "_metadata_"):
+                current = current["parsed"]
+
+        i += 1
+
+    if isinstance(current, bytes):
+        return current.hex()
+
+    if isinstance(current, dict) and "parsed" in current:
+        if all(k in ('parsed', 'value', '_metadata_') for k in current.keys()):
+            return current.get('parsed', default)
+
+    return current if current is not None else default
+
+
+
+
+Função de parse principal relacionada à DLT_IEEE802_11_RADIO:
+pktparsers/pktparsers/layers/l2/ieee802/dot11/parse.py:
+from logging import getLogger
+from core.common.parser import (ParseContext, unpack, run_dispatch, detect_fcs)
+from core.layers.l2.ieee802.dot11.parsers import (radiotap_header, mac_header, body)
+from core.layers.l2.ieee802.dot11.constants import *
+
+logger = getLogger(__name__)
+
+def parse(frame: bytes, offset: int = 0) -> dict:
+    logger.debug("Frame parse")
+    try:
+        with ParseContext(frame, offset) as ctx:
+            ctx.set("rt_hdr", radiotap_header.parser())
+            rt_hdr = ctx.get("rt_hdr")
+            if rt_hdr is None or {}:
+                logger.debug("Unexpected radiotap header error")
+                return ctx.result
+            rt_flags = rt_hdr.get("parsed", {}).get("flags", {})
+            bad_fcs = rt_flags.get("bad_fcs")
+            if bad_fcs:
+                logger.debug("Dropping frame: bad_fcs indicated by radiotap")
+                return ctx.result
+            ctx.set("fcs", detect_fcs())
+            if ctx.offset >= len(ctx.frame):
+                logger.debug("Empty 802.11 frame after radiotap, skipping")
+                return ctx.result
+            ctx.set("mac_hdr", mac_header.parser())
+            ctx.set("body", body.parser())
+    except Exception as e:
+        logger.debug(f"Frames parser error: {e}")
+    return ctx.result
+
+
+
+
+
+Funções de parsers de dot11:
+pktparsers/pktparsers/layers/l2/ieee802/dot11/parsers/:
+common.py:
+def fixed_parameters(**kwargs) -> dict:
+    def _parser(value: tuple, **k) -> dict:
+        ts, interval, cap_raw = value
+        
+        cap_list = [
+            "ess_capabilities", "ibss_status", "reserved1", "reserved2",
+            "privacy", "short_preamble", "critical_update_flag",
+            "nontransmitted_bssid_critical_update_flag", "spectrum_management",
+            "qos", "short_slot_time", "automatic_power_save_delivery",
+            "radio_measurement", "epd", "reserved3", "reserved4",
+        ]
+        
+        capabilities = bitmap_value_for_dict(cap_raw, cap_list)
+        
+        return {
+            "timestamp": ts,
+            "beacon_interval": interval,
+            "capabilities_information": capabilities
+        }
+
+    result = {}
+
+    try:
+        result = unpack("<QHH", parser=_parser)
+    except Exception as e:
+       logger.debug(f"Parser fixed parameters error: {e}")
+
+    return result
+
+def tagged_parameters(value: bytes = None, **kwargs) -> dict:
+    logger.debug(f"Tagged parameters parser{' (callback mode)' if value is not None else ''}")
+
+    ies_container = {}
+    ctx = ParseContext.current()
+    
+    if value is not None:
+        limit = ctx.offset
+        ctx.offset -= len(value)
+    else:
+        max_length = kwargs.get('max_length', 0)
+        limit = (ctx.offset + max_length) if max_length else len(ctx.frame)
+
+    while ctx.offset + MIN_IE_LEN <= limit:
+        try:
+            ie_entry = unpack("<BB", parser=ie_dispatch, **kwargs)
+            
+            parsed_data = ie_entry.get("parsed", {})
+            tag_name = parsed_data.get("name") or parsed_data.get("tag_number")
+            
+            insert_item(ies_container, tag_name, ie_entry)
+        except Exception as e:
+            logger.error(f"Error parsing IE at offset {ctx.offset}: {e}")
+            break
+
+    ctx.offset = limit
+    return ies_container
+
+
+
+
+
+pktparsers/pktparsers/layers/l2/ieee802/dot11/parsers/:
+ie.py:
+def ie_dispatch(value: tuple, **kwargs) -> dict:
+    def _fallback(tag_length: int, **k):
+        return unpack(f"{tag_length}s")
+
+    ie_result = {}
+    tag_number, tag_length = value
+
+    ctx = ParseContext.current()
+    start_offset = ctx.offset
+    expected_end = start_offset + tag_length
+
+    try:
+        entry = IE_DISPATCH.get(tag_number, {})
+        ie_result = {
+            "tag_number": tag_number,
+            "tag_length": tag_length,
+            "name": entry.get("name"),
+            "description": entry.get("description")
+        }
+        ie_result["data"] = run_dispatch(
+            IE_DISPATCH,
+            tag_number,
+            fallback=_fallback,
+            tag_length=tag_length
+        )
+
+    except Exception as e:
+        logger.debug(f"IE parser error for tag {tag_number} value={value} entry={entry} : {e}")
+
+    finally:
+        if ctx.offset != expected_end:
+            logger.debug(
+                f"IE tag {tag_number} offset drift: expected={expected_end} got={ctx.offset} "
+                f"(drift={ctx.offset - expected_end:+d})"
+            )
+            ctx.offset = min(expected_end, len(ctx.frame))
+
+    return ie_result
+
+
+
+
+
+registry.py:
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ cat layers/registry.py
+from pktparsers.layers.l2.ieee802.dot11 import parse, parse_radio
+from pktparsers.common.constants.parsers import *
+
+DLT_DISPATCH = {
+    "DLT_EN10MB": {
+        "value": DLT_EN10MB,
+        "parser": None
+    },
+    "DLT_IEEE802_11": {
+        "value": DLT_IEEE802_11,
+        "parser": dot11.parse
+    },
+    "DLT_IEEE802_11_RADIO": {
+        "value": DLT_IEEE802_11_RADIO,
+        "parser": dot11.parse_radio
+    },
+    "DLT_BLUETOOTH_HCI_H4": {
+        "value": DLT_BLUETOOTH_HCI_H4,
+        "parser": None
+    },
+    "DLT_BLUETOOTH_HCI_H4_PHDR": {
+        "value": DLT_BLUETOOTH_HCI_H4_PHDR,
+        "parser": None
+    },
+    "DLT_RAW": {
+        "value": DLT_RAW,
+        "parser": None
+    },
+}
+
+def get_parser(dlt: str | int):
+    config = DLT_DISPATCH.get(dlt if isinstance(str, dlt) else next((k for k, v in DLT_DISPATCH.items()) if v.get("value") == dlt))
+    if not config or not config["parser"]:
+        raise ValueError(f"Parser not available or not implemented for: {dlt_name}")
+    return config["parser"]
+
+def get_dlt_value(dlt_name: str):
+    config = DLT_DISPATCH.get(dlt_name)
+    if not config:
+        raise ValueError(f"Unknown DLT: {dlt_name}")
+    return config["value"]
+
+def list_supported_dlts():
+    return [k for k, v in DLT_DISPATCH.items() if v["parser"] is not None]
+
+
+
+
+
+
+framesniff atualmente:
+/core/app.py:
+função sniff:
+    def sniff(
+        self,
+        dlt: str = "DLT_IEEE802_11_RADIO",
+        ifname: str = None,
+        store_filter: str = None,
+        display_filter: str = None,
+        count: int = None,
+        timeout: float = None,
+        display_interval: float = 0.0,
+        store_callback: callable = None,
+        display_callback: callable = None,
+        stop_event: threading.Event = None,
+        simple_output: bool = False,
+        output_fullpath: str = None,
+        test: bool = False,
+        input_fullpath: str = None,
+    ):
+        if not test:
+            check_root()
+            check_interface_mode(ifname, "monitor")
+
+        try:
+            parser = get_parser(dlt)
+        except ValueError as e:
+            logger.error(e)
+            return
+
+        output_fullpath = new_file_path(output_fullpath, "framesniff-capture.json")
+        frame_processed_counter = 0
+        frames_stored_counter = 0
+        frames_displayed_counter = 0
+        last_display_time = 0.0
+        start_time = time.time()
+
+        def _process_frame(frame: bytes, output_file) -> bool:
+            nonlocal frame_processed_counter, frames_stored_counter, frames_displayed_counter, last_display_time
+
+            try:
+                parsed_frame = parser(frame)
+            except Exception as e:
+                logger.debug(f"Parser error: {e}", exc_info=True)
+                return False
+
+            frame_processed_counter += 1
+            parsed_frame["counter"] = frame_processed_counter
+            parsed_frame["raw"] = frame.hex()
+
+            store_result, display_result = apply_filters(store_filter, display_filter, parsed_frame)
+
+            if store_result:
+                if simple_output:
+                    dump = json.dumps(parsed_frame, default=bytes_encoder, separators=(",", ":"))
+                else:
+                    dump = json.dumps(parsed_frame, default=bytes_encoder, indent=2)
+
+                output_file.write(dump + "\n")
+
+                if frames_stored_counter % 100 == 0:
+                    output_file.flush()
+
+                frames_stored_counter += 1
+
+                if store_callback:
+                    store_callback(parsed_frame)
+
+            if display_result:
+                frames_displayed_counter += 1
+                if display_callback:
+                    display_callback(display_result)
+                else:
+                    current_time = time.time()
+                    if current_time - last_display_time >= display_interval:
+                        try:
+                            log_out = json.dumps(display_result, default=bytes_encoder, ensure_ascii=False)
+                            logger.info(f"[{frame_processed_counter}] {log_out}")
+                        except Exception:
+                            logger.warning(f"[{frame_processed_counter}] {display_result}")
+                        last_display_time = current_time
+
+            return True
+
+        def _should_stop() -> bool:
+            if stop_event and stop_event.is_set():
+                logger.info("Stop event received, finishing...")
+                return True
+            if timeout and (time.time() - start_time) >= timeout:
+                logger.info(f"Timeout of {timeout}s reached.")
+                return True
+            if count is not None and frames_stored_counter >= count:
+                return True
+            return False
+
+        def _log_summary():
+            elapsed = time.time() - start_time
+            logger.info(
+                f"Capture finished.\n"
+                f"  Elapsed time     : {elapsed:.2f}s\n"
+                f"  Frames processed : {frame_processed_counter}\n"
+                f"  Frames stored    : {frames_stored_counter}\n"
+                f"  Frames displayed : {frames_displayed_counter}"
+            )
+
+        if test:
+            if not input_fullpath:
+                raise ValueError("Input file path (input_fullpath) is required when test=True.")
+
+            logger.info(
+                f"Starting OFFLINE processing...\n"
+                f"Input        : {input_fullpath}\n"
+                f"Store filter : {store_filter}\n"
+                f"Display filter: {display_filter}\n"
+                f"Output       : {output_fullpath}"
+            )
+
+            try:
+                with open(output_fullpath, "a") as output_file:
+                    for _cleaned_hex, frame in iter_from_json(input_fullpath, raw_packet_extractor()):
+                        if _should_stop():
+                            break
+                        _process_frame(frame, output_file)
+            except Exception as e:
+                logger.critical(f"Unexpected error in offline sniff: {e}", exc_info=True)
+            finally:
+                _log_summary()
+
+            return
+
+        sock = create_raw_socket(ifname)
+
+        try:
+            logger.info(
+                f"Starting capture on {ifname}... (Press Ctrl+C to stop)\n"
+                f"Store filter  : {store_filter}\n"
+                f"Display filter: {display_filter}\n"
+                f"Output path   : {output_fullpath}\n"
+                f"Timeout       : {timeout} seconds"
+            )
+
+            with open(output_fullpath, "a") as output_file:
+                while True:
+                    if _should_stop():
+                        break
+
+                    try:
+                        frame, _ = sock.recvfrom(65535)
+                        _process_frame(frame, output_file)
+                    except KeyboardInterrupt:
+                        logger.info("Capture interrupted by user.")
+                        break
+                    except Exception as e:
+                        logger.error(f"Error processing frame: {e}")
+                        continue
+
+        except Exception as e:
+            logger.critical(f"Unexpected error in sniff: {e}", exc_info=True)
+
+        finally:
+            _log_summary()
+            sock.close()
+            if stop_event:
+                stop_event.set()
+
+
+
+
+funções relacionadas à hashcat:
+    @staticmethod
+    def _generate_22000(htype: int, ssid: str, input_fullpath: str, hformat: str = None, output_fullpath: str = None):
+        def _build_eapol_line(ssid: str, input_fullpath: str):
+            eapol_msg1 = None
+            eapol_msg2 = None
+        
+            for i, (_, fbytes) in enumerate(iter_from_json(input_fullpath, raw_packet_extractor())):
+                if i == 0:
+                    eapol_msg1 = fbytes
+                elif i == 1:
+                    eapol_msg2 = fbytes
+                    break
+        
+            if not eapol_msg1 or not eapol_msg2:
+                raise ValueError("Need at least 2 EAPOL frames")
+        
+            parser = get_parser("DLT_IEEE802_11_RADIO")
+        
+            msg1 = parser(eapol_msg1)
+            msg2 = parser(eapol_msg2)
+        
+            msg2_mac = get_nested("mac_hdr", msg2)
+        
+            ap_mac = msg2_mac["bssid"]["value"].hex()
+            sta_mac = (msg2_mac["sa"]["value"] or msg2_mac["ta"]["value"]).hex()
+        
+            msg1_eapol = get_nested("body.llc.payload", msg1)
+            msg2_eapol = get_nested("body.llc.payload", msg2)
+        
+            logger.warning(f"{msg1_eapol}\n{msg2_eapol}")
+
+            anonce = get_nested("key_nonce", msg1_eapol)
+            mic = get_nested("key_mic", msg2_eapol)
+            key_data = get_nested("key_data._metadata_.raw", msg2_eapol) 
+
+            payload_meta = get_nested("body.llc.payload._metadata_", msg2)
+            fields = list(msg2_eapol.keys())
+
+            try:
+                mic_index = fields.index("key_mic")
+            except ValueError:
+                raise ValueError("'key_mic' not found in EAPOL")
+            
+            tokens = payload_meta["tokens"]
+            eapol_len = calc_offset_from_fmt(tokens, len(tokens)) 
+
+            full_eapol = bytes.fromhex(payload_meta["raw"] + key_data)
+            
+            eapol_zero_mic_bytes = clear_field(full_eapol, payload_meta, mic_index, EAPOL_KEY_MIC_LENGTH)
+
+            return f"WPA*02*{mic}*{ap_mac}*{sta_mac}*{ssid}*{anonce}*{eapol_zero_mic_bytes.hex()}*00"
+
+        def _build_pmkid_line(ssid: str, input_fullpath: str):
+            with open(input_fullpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                pmkid = clean_hex_string(data.get("pmkid"))
+                ap_mac = clean_hex_string(data.get("ap_mac"))
+                sta_mac = clean_hex_string(data.get("sta_mac"))
+                if not all([pmkid, ap_mac, sta_mac]):
+                    raise ValueError("Missing PMKID data")
+                return f"WPA*01*{pmkid}*{ap_mac}*{sta_mac}*{ssid}***00"
+
+        HTYPE_GENERATORS = {
+            HC22000_PMKID: _build_pmkid_line,
+            HC22000_EAPOL: _build_eapol_line
+        }
+        
+        if not input_fullpath:
+            raise ValueError("Input file must be provided.")
+        
+        if not ssid:
+            raise ValueError("SSID must be provided.")
+        
+        ssid = ssid.encode().hex()
+        
+        try:
+            line = HTYPE_GENERATORS[htype](ssid, input_fullpath)
+            logger.info(line)
+            if output_fullpath:
+                with open(new_file_path(output_fullpath, f"hashcat_{hformat}_{htype}"), "w") as output_file:
+                    output_file.write(line)
+            return line
+        except Exception as e:
+            logger.error(f"Exception: {e}")
+
+
+
+
+
+wnlpy atualmente:
+nl80211/parse.py:
+
+def show_ap_info(kernel_response_scan, NL80211_FAMILY_ID):
+    AP_LIST = []
+    try:
+       kernel_response = kernel_response_parser(kernel_response_scan, NL80211_FAMILY_ID)
+       for nlmsg_ap in kernel_response:
+           genlcmd = nlmsg_ap["genlmsg"][0]
+           #if genlcmd != NL80211_CMD_NEW_SCAN_RESULTS:
+              #continue
+
+           for (nla_len, nla_type, nla_data) in nlmsg_ap["nlattrs"]: # attribute from nlmsg_ap
+                if nla_type == NL80211_ATTR_BSS:
+                   AP_INFO = {}
+                   AP_INFO['Vendor specific'] = []
+
+                   for bss_attr in parser_nl80211_bss(nla_data):
+                       bss_tag, bss_type, bss_value = bss_attr
+                       if bss_type == 1: # NL80211_BSS_BSSID bss attribute
+                          bssid = mac_converter(bss_value)
+                          AP_INFO['Bssid'] = bssid, mac_oui_vendors_identify(bssid)
+                       if bss_type == 2: # NL80211_BSS_FREQUENCY bss attribute
+                          AP_INFO['Frequency'] = struct.unpack("<I", bss_value)[0]
+                       if bss_type == 3:
+                          AP_INFO['TSF'] = struct.unpack("<Q", bss_value)[0] # NL80211_BSS_TSF
+                       if bss_type == 4: # NL80211_BSS_BEACON_INTERVAL
+                          AP_INFO['Beacon interval'] = struct.unpack("<H", bss_value)[0]
+                       if bss_type == 5: # NL80211_BSS_CAPABILITY bss attribute
+                             capability = struct.unpack("<H", bss_value)[0] # bitmap informations
+                             capabilities = {
+                               "ESS is AP": bool(capability & 0x0001),
+                               "IBSS is ad-hoc": bool(capability & 0x0002),
+                               "Data confidentiality required": bool(capability & 0x0005),
+                               "Privacy (WEP Enabled)": bool(capability & 0x0010)
+                             }
+                             AP_INFO['Capabilities'] = capabilities
+                       if bss_type == 6: # NL80211_BSS_INFORMATION_ELEMENTS bss attribute
+                          for ie in parser_IEs(bss_value): # loop for IEs attributes per eid
+                              if isinstance(ie, tuple):
+                                 if ie[0] == 0: # WLAN_EID_SSID eid attribute
+                                    AP_INFO['Ssid'] = ie[2].decode('utf-8', errors='ignore') if ie[2].decode('utf-8', errors='ignore') != '' else 'Hidden SSID'
+                                 if ie[0] == 1: # WLAN_EID_RATES eid attribute
+                                    AP_INFO['Supported rates'] = calc_rates(ie[2])
+                                 if ie[0] == 3: # WLAN_EID_DS_PARAMS eid attribute
+                                    AP_INFO['Channel'] = struct.unpack('<B', ie[2])[0]
+                                 if ie[0] == 7: # WLAN_EID_COUNTRY eid attribute
+                                    country_code = ie[2][:3].decode('utf-8', errors='ignore').strip()
+                                    channels_info = []
+                                    for info in range(3, len(ie[2]), 3):
+                                        if len(ie[2][info:info+3]) == 3: # take a info full
+                                           first_channel, num_channel, max_power = struct.unpack('<BBb', ie[2][info:info+3])
+                                           channels_info.append((first_channel, num_channel, max_power))
+                                    AP_INFO['Country'] = country_code, channels_info
+                                    # WLAN _EID_QBSS_LOAD
+                                 if ie[0] == 35: # WLAN_EID_TPC_REPORT eid attribute tx power signal from device
+                                    AP_INFO['TPC report'] = struct.unpack('bb', ie[2])[0]
+                                         
+                                 if ie[0] == 48: # WLAN_EID_RSN eid attribute
+                                    rsn_info = {}
+                                    offset = 0
+                                    version, GCS, PCSC = struct.unpack_from('H4sH', ie[2], offset) 
+                                    rsn_info['Group cipher suite multicast/broadcast'] = GCS_OUI_identify(GCS)
+                                    offset += struct.calcsize("HIH")
+                                    rsn_info['Pairwise cipher suites unicast'] = []
+                                    for _ in range(PCSC):
+                                       cipher_suite = struct.unpack_from("4s", ie[2], offset - struct.calcsize('H'))[0]
+                                       rsn_info['Pairwise cipher suites unicast'].append(GCS_OUI_identify(cipher_suite))
+                                       offset += struct.calcsize("I")
+                                    offset -= struct.calcsize("H") # because of the for loop the offset is misaligned
+                                    AKM_count = struct.unpack_from("H", ie[2], offset)[0]
+                                    offset += struct.calcsize("H")
+                                    rsn_info['AKM list'] = []                                      
+                                    for _ in range(AKM_count):
+                                        AKM = struct.unpack_from("<4s", ie[2], offset)[0]
+                                        rsn_info['AKM list'].append(AKM_OUI_identify(AKM))
+                                        offset += struct.calcsize("<I")
+                                    capability_rsn = struct.unpack_from("<H", ie[2], offset)[0]
+                                    rsn_capabilities = {
+                                      'Pre-Auth': bool(capability_rsn & 1),
+                                      'No pairwise': bool(capability_rsn & 2),
+                                      'PTK replay counters': (capability_rsn & 12) >> 2,
+                                      'GTK replay counters': (capability_rsn & 48) >> 4,
+                                      'Management frame protection required MFPR': bool(capability_rsn & 64),
+                                      'Management frame protection capable MFPC': bool(capability_rsn & 128),
+                                      'Joint Multi-Band RSNA': bool(capability_rsn & 256),
+                                      'PeerKey enable': bool(capability_rsn & 512),
+                                      'Extended key ID': bool(capability_rsn & 0x4000),
+                                      'OCVC': bool(capability_rsn & 0x8000)
+                                    }
+                                    rsn_info['RSN capabilities'] = rsn_capabilities              
+                                    AP_INFO['RSN'] = rsn_info
+                                 if ie[0] == 195: # WLAN_EID_TX_POWER_ENVELOPE eid attribute
+                                    offset = 0
+                                    AP_INFO['Tx power enveloped'] = []
+                                    for _ in range(ie[1]):
+                                        tx_power = struct.unpack_from("b", ie[2], offset)[0]
+                                        AP_INFO['Tx power enveloped'].append(tx_power)
+                                        offset += struct.calcsize("b")
+
+                                 if ie[0] == 221: # WLAN_EID_VENDOR_SPECIFIC eid attribute
+                                    vendor_format = f"3sB{ie[1] - struct.calcsize('3sB')}s"
+                                    OUI_vendor, OUI_type, vendor_data = struct.unpack(vendor_format, ie[2])
+                                    OUI_vendor_mac = mac_converter(OUI_vendor)
+                                    AP_INFO['Vendor specific'].append((OUI_vendor_mac, mac_oui_vendors_identify(OUI_vendor_mac), OUI_type, vendor_data))
+                       if bss_type == 7: # NL80211_BSS_SIGNAL_MBM bss attribute
+                          AP_INFO['Signal mBm'] = struct.unpack("<i", bss_value)[0]
+                          signals = {}
+                          try:
+                             signals["Signal mBm Pr"] = AP_INFO.get("Signal mBm")
+                             signals["TPC report Pt"] = AP_INFO.get("TPC report")
+                             signals["Tx power enveloped Pt"] = AP_INFO.get("Tx power enveloped")[3] if AP_INFO.get("Tx power enveloped") and len(AP_INFO.get("Tx power enveloped")) > 3 else None
+                             signals["Country Pt"] = AP_INFO.get("Country")[1][0][2] if AP_INFO.get("Country") and len(AP_INFO.get("Country")) == 2 else None
+                             signals["TSF"] = AP_INFO.get("TSF")
+                             signals["Beacon interval"] = AP_INFO.get("Beacon interval")
+                             signals["Frequency"] = AP_INFO.get("Frequency")
+                             # NL80211_BSS_SIGNAL_UNSPEC
+                             # NL80211_BSS_BEACON_TSF
+                             signal_results = signal_analyser(signals)
+                             AP_INFO["Signal analysis"] = signal_results
+                          except Exception as error:
+                                 AP_INFO["Signal analysis"] = f"Error: {str(error)}"
+                               
+                   AP_LIST.append(AP_INFO)
+       return AP_LIST
+    except Exception as error:
+           print(error)
+
+
+
+ 
+
+Atualmente estou começando a desenvolver o pktparsers, o módulo de parsers de frames, pacotes e campos de rede, de diferentes padrões de comunicação diferentes. Ele será utilizado por programas como o framesniff, e por outros módulos como o wnlpy (Wrapper/Wireless Netlink Python) para parsear os blobs retornados por uma mensagem nl80211 de operação de scan. 
 Logo logo vou adaptar o framesniff para utilizar ele.
 
 O que básicamente estou fazendo agora, é mover toda a estrutura de parse criada para o framesniff, para "core" de pktparsers. Para assim, torna-lo reutilizavel em outros projetos.
@@ -14,8 +756,18 @@ Atualmente minha ideia com esse módulo "pktparsers" é:
 Um programa como framenisff poderá criar uma função de sniff que abre um socket de captura de frames DLT_IEEE802_11_RADIO, e assim pode utilizar pktparsers para parsear cada frame capturado.
 Mas outros módulos como wnlpy poderão acessar acessar funções de módulos específicos de parse do pktparsers, como as funções de parse ie ou tagged_parameters.
 
+Acho que é necessário revisarmos o principal objetivo com a ideia de implementar:
+Resumo do frame.
+Resumo de tráfego. 
+
+Os principais objetivos são:
+Poder criar uma estrutura DeviceEntry que conterá vários dados sobre um dispositivo com base nas estruturas de summary coletadas pela função de traffic_summarize.
+Facilitar módulos como scan_monitor.py ou funções utilitárias dentro da classe Hashcat, obterem as informações relevantes das estruturas de summary, para exibir realizar operaçòes com elas, como: exibir na interface TUI no caso de scan_monitor.py; Ou se for uma função utilitária de Hashcat, que irá obter facilmente os dados eapol do summary do frame, para poder gerar a linha hash para o brute force. 
+
+Esses Summary(s) resolves o principal problema de funções que consome o resultado do frame ou pacote parseado, essas função ainda precisam navegar de forma lógica e de acordo com o protocolo, por todo o conteúdo parseado e obter cada dado parseado, para interpretar e assim chegar à conclusão de algumas informações.
+
 Quero implementar:
-Traffic Summary, semelhante à WLAN Traffic no wireshark, mas com diferenças.
+Traffic Summary que será semelhante à WLAN Traffic no wireshark, mas com diferenças.
 
 Estrutura que o wireshark fornece:
 
@@ -39,16 +791,31 @@ Como traffic summary irá ser:
 TrafficSummary terá vários DeviceEntry, que provavelmente estarão dentro de um set:
 {DeviceEntry}, {DeviceEntry}, {DeviceEntry} ...
 Pois poderá haver um dispositivo com o mesmo MAC na rede, podendo assim, sobrescrever ou gerar conflito no momento da criação de novos DeviceEntry(s).
+DeviceEntry: ainda estou em dúvida sobre como irei estruturar ele, pois não sei se crio uma estrutura DeviceEntry universal, que irá estruturar todos os dados relevantes através de qualquer função utilizada em TrafficContext para criar DeviceEntry através das estruturas de Summary que ela está preparada para lidar dentro do pacote parseado.
+Ou seja, TrafficSummary irá conter uma variável "entries" que geralmente irá conter várias entradas DeviceEntry, visualmente seria:
 Mas visualmente:
 Traffic Summary - wlp0s20f3:
 "ip, mac address, ou qualquer outro endereço principal relacionado ao dispositivo de acordo com a camada/padrão de comunicação principal sendo capturado através da interface, ou seja, mac address se o sniff for a partir da camada L2, ip se o sniff for a partir da camada L3 ou L4": DeviceEntry
 
-Tecnicamente:
+Tecnicamente vai ser algo como:
 
+dissector (classe ou função) recebe (dlt, pacote, offset), dlt pois será necessária para poder obter o parse principal relacionada à DLT do pacote, usei o termo "pacote" pois quero me referir de forma geral às PDUs (pois dissector não sabe se é frame, pacote, segmento ou dado).
 
+Então e se a função ou classe dissector retornar constantemente o pacote parseado e a variável traffic_summary com os dados do summary de trafégo? dessa forma, funções cmo sniff recebem essa duas variável retornadas pela classe ou função dissector, e utiliza elas para escrever no arquivo .json de captura ou outra operação. Mantendo assim a responsabilidade de pktparsers de parsear um pacote e retorna o pacote parseado com seus summaries, e o traffic_summary. Mas como isso seria feito? pois traffic_summary precisará ser mantida para ser atualizada constantemente com os novos dados obtidos dos summaries do pacote parseado. Então dissector não poderá ser simplesmente uma função, pois precisará manter o estado de traffic_summary para atualizar constantemente. Não sei, mas preciso que sugira algo profissional, uma solução para esse problema.
 
-DeviceEntry: ainda estou em dúvida sobre como irei estruturar ele, pois não sei se crio uma estrutura DeviceEntry universal, que irá estruturar todos os dados relevantes através de qualquer função utilizada em TrafficContext para criar DeviceEntry através das estruturas de Summary que ela está preparada para lidar dentro ou fora do frame parseado.
-Ou seja, TrafficSummary irá conter várias entradas DeviceEntry, visualmente seria:
+Estou pensando em algo como:
+
+Estou pensando nessa estrutura TrafficSummary como global/universal, mas talvez seja necessário que ela seja por DLT ou procolo, não sei, tenho que decidir.
+@dataclass
+class TrafficSummary:
+    start_time: float = field(default_factory=time.time)
+    entries: dict = field(default_factory=dict) 
+    total_frames: int = 0
+    
+def traffic_summarizer(dlt: str | int, parsed: dict) -> TrafficSummary: 
+    result = pktparsers.layers.registry.build_traffic_summary(dlt)(parsed) # retorna DeviceEntry ou estrutura parecida, ela será adicionada em "entries".
+
+Ou seja, uma função global de traffic summarizer vai obter dados para manter a estrutura geral de TrafficSummary, e a função de traffic_summary relacionada à DLT ou protocolo específico, irá gerar a entry que será alocada em "entries" em traffic_summary, essa entry poderá e geralmente será DeviceEntry. 
 
 A questão é que agora estou pensando em implementar:
 As estruturas de Summary que acho que vou ter que implementar (através de dataclass):
@@ -57,45 +824,24 @@ PacketSummary (l3)
 SegmentSummary (l4)
 DataSummary (l5, l6, l7)
 TrafficSummary
+DeviceEntry
 
-Provavelmente irei criar um diretório "summaries" para agrupar os módulos que irão definir essas estruturas de Summary, mas acho que o correto vai ser criar o diretório "summaries" dentro de cada padrão de comunicação relacionado a uma DLT de captura possível. Ou seja, irei criar o diretório "summaries" ou "summary" dentro de ieee802/dot11/ pois dot11 é o padrão de comunicação relacionado a DLT de captura "DLT_IEEE802_11_RADIO".
-
-
+Provavelmente irei criar um diretório "summaries" para agrupar os módulos que irão definir essas estruturas de Summary, mas acho que o correto vai ser criar o diretório "summaries" dentro de cada padrão de comunicação relacionado a uma DLT de captura possível. Ou seja, irei por exemplo, criar o diretório "summaries" ou "summary" dentro de ieee802/dot11/ pois dot11 é o padrão de comunicação relacionado a DLT de captura "DLT_IEEE802_11_RADIO".
 
 Pensei no fluxo:
 Função sniff de framesniff (por exemplo), ou a classe Dissector ou função dissector de pktparsers, cria TrafficContext.
-TrafficContext usa uma função que consome FrameSummar para criar TrafficSummary.
-TrafficContext consome FrameSummary para criar DeviceEntry.
-FrameSummary consome descriptions do resultado do frame ou pacote parseado.
-
-Mas ainda tenho muitas dúvidas em relação à forma como irei gerar as estruturas de Summary:
+TrafficContext obtem e usa uma função que busca e consome os summaries do conteúdo do pacote parseado, para assim, criar entry(s) que serão alocadas no dicionário "entries" de TrafficSummary, essa entry geralmente será DeviceEntry.
+Cada função de parse principal relacionada a uma DLT de captura específica, ou protocolo específico, irá ter uma função de summary, que irá gerar um summary de acordo com o seu conteúdo parseado.
 
 Dúvidas em relação a FrameSummary:
-E se ao invés de gerar os descriptions durante o parse de campos específicos, para que uma função de Frame ou Packet summary obter eles e gerar as estruturas de summary. Na verdade ter apenas uma função para analisar todo o frame ou pacote parseado e gerar todas as estruturas de Summary?
-A grande é questão é que por exemplo, frames contém payloads, e esse próprios payloads são pacotes que, podem conter segmentos que, podem conter dados. Dessa forma, irei ter uma função única para percorrer todo o frame parseado e gerar esse summaries de acordo com uma analise lógica e conceitual da estrutura do frame ou pacote? ou chamar a função summarie específica dentro do parse da camada específica? exemplo: parse de pacote ARP chama função de summarie de pacote, dessa forma, a estrutura summarie fica disponível diretamente no resultaod final do frame parseado.
-Se for função única, onde ela ficaria? no diretório relacionado ao padrão específico? ou no diretório relacionado à camada de rede?
-
-Dúvidas em relação à TrafficContext:
-A função que irá analisar o frame parseado com as estruturas de Summary, irá ser provavelmente chamada dentro de ParseContext, e ela, irá gerenciar a variável de traffic_context do contexto de TrafficContext criado por uma função ou classe superior.
-A estrutura TrafficSummary vai se global? ou de acordo com a camada ou padrão de comunicação específico?
+A grande é questão é que por exemplo, frames contém payloads, e esse próprios payloads são pacotes que, podem conter segmentos que, podem conter dados. Dessa forma, irei ter uma função única para percorrer todo o frame parseado e gerar esse summaries de acordo com uma analise lógica e conceitual da estrutura do frame ou pacote (a partir de uma DLT inicial passada)? acho que assim seria muito complexo. Então estou pensando mais na forma: chamar a função de geração Summariy dentro de cada parse principal relacionado a uma DLT ou protocolo específico, digo protocolo específico pois quero futuramente dar suporte à DLT_RAW que utiliza parse de ip diretamente sem cabeçalho ethernet, e pelo o que sei, o parse ou protocolo ip não está relacionado a uma DLT ou padrão de comunicação específico, assim como o parse dados http, http não está relacionado a nenhuma DLT específica.
+Então cada função principal de parse relacionada a uma DLT ou protocolo específico, terá uma função para gerar seu summary, exemplo:
+Função de parse da DLT_IEEE802_11_RADIO cria seu FrameSummary, função de parse da DLT_EN10MB cria seu FrameSummary, função de parse da camada 3 cria PacketSummary, função de parse da camada 4 cria SegmentSummary, e função de parse da camada 5 em diante criar DataSummary para cada payload carregado.
 
 Será que pktparsers poderá/irá ter funcionar assim?:
-Dissector -> TrafficContext -> ParseContext
+Dissector (classe ou função) -> TrafficContext (classe) -> ParseContext (classe)
 Dessa forma, uma função como sniff do framesniff, irá importar a classe ou função dissector de pktparsers, a função dissector teria a assinatura:
 (dlt: str, packet: bytes, offset: int = 0) "packet" pois dissector não sabe realmente se é frame, pacote, ou segmento, apenas irá chamar o parse completo de acordo com a DLT passada.
-
-A questão é que quero seguir um mesmo padrão de estrutura de parse em cada padrão de comunicação ou camada diferente, tenho que decidir se haverá uma função de parse principal em cada diretório relacionado a um padrão de comunicação específico, ou de acordo com camada de rede.
-ParseContext gera os Summaries através de uma função específica relacionada ao seu padrão de comunicação ou camada na rede, que irá analisar todos os descriptions do frame parseado, ou todo o frame parseado em si (ainda tenho que decidir como vou gerar os Summary de cada frame, pacote, segmento ou dado específico). ParseContext provavelmente irá ter que chamar a funçao responsável por gerenciar a variável de traffic_context, analisando os summaries gerados, criando DeviceEntry de acordo com eles, e populando o traffic_context. Essa função responsável por gerenciar TrafficContext vai ser chamada de acordo com o padrão de comunicação ou camada de rede específica.
-
-Acho que necessário revisarmos o principal objetivo com a ideia de implementar:
-Descrição de conteúdo parseado.
-Resumo do frame.
-Resumo de tráfego. 
-
-Os principais objetivos são:
-Poder criar uma estrutura DeviceEntry que conterá vários dados sobre um dispositivo com base nos frames e pacotes capturados relacionados ao endereço dele.
-Facilitar módulos como scan_monitor.py obterem informações relevantes para exibir na interface TUI. Pois atualmente ele precisa navegar sobre todo o frame parseado e obter cada dado parseado, para interpretar e assim chegar à conclusão de algumas informações. Assim como as funções das classe Hashcat, usadas para gerar linhas utilizadas para brute force pelo hashcat, seria muito mais fácil se houve um description do conteúdo parseado do payload EAPOL, indicando se é frame 1, 2, 3 ou 4. Ou ao invés disso, ter essa informação diretamente em FrameSummary.
-
 
 As estruturas que andei pensando:
 Padrão de summary.py para cada DLT de captura:
@@ -170,15 +916,19 @@ def _summarize_eapol(eapol: dict) -> dict:
     
     return {"message": msg, "flags": flags}
 
+Esse é só um exemplo, pois existem alguns problemas:
+A função summarize_dot11 assume que existe dicionários como "eapol" sem verificar os dados do conteúdo parseado, que indicam a presença de certos dicionários como "eapol", essa é a questão, a função de "summarize" do parse principal de alguma DLT como: DLT_IEEE802_11_RADIO, deve ser responsável por percorrer o conteúdo do frame parseado de forma lógica de acordo com o protocolo, e buscar dicionários como "eapol" de acordo com os dados do resultado do frame parseado, como frame_type e frame_subtype.
+Outro problema é a própria variável eapol definida na estrutura de Summary de frames dot11, acho que seria melhor um nome mais geral, pois se for assim, irei ter definir as variáveis: eap e radius, indicando que armazena o resumo da parte de autênticação desse frames.
 
-Ou seja, a função summarize_dot11 seria responsável não apenas por analisar lógicamente (de acordo com o protocolo e padrão de comunicação) o resultado do frame parseado, 
+Essas funções não estou utilizando a função auxiliar "get_nested".
 
-A função responsável por criar ou atualizar uma entrada DeviceEntry(s) específica em traffic_summary, a partir das estruturas de Summary obtidas pela função de traffic context. A questão é como essa função de traffic context irá obter essas estruturas de Summary, formas que pensei:
+Provavelmente a melhor forma será ter uma função como traffic_summarize disponível para cada DLT de captura, ela irá receber a dlt principal do pacote (pacote em termo geral) parseado, essa DLT será usada para obter a função responsável por analisar todo o pacote (no termo geral) parseado, e percorrer profundamente ele em busca dos dicionários de summary gerados por outros parsers principais (principais baseando-se no critério: DLT de captura e procolo específico (como http)), para assim, centralizar temporariamente eles de forma lógica e correta, para facilitar o acesso a eles, e a obtenção de dados necessários para a criação de estruturas como DeviceEntry, que irão ser populadas em "entries" de TrafficSummary.
+
+Talvez TrafficSummary precise ser apenas uma estrutura que agrupe varias entry(s) diretamente, sem a necessidade de ter uma variável "entries" para armazenar as entry(s).
+
 forma 1:
-Percorrer todo frame parseado de forma lógica, proucurando estruturas de Summary, obter elas, centralizar elas temporariamente, e começar a obter os dados relevantes para criar ou atualizar os DeviceEntry(s) em traffic_summary.
-
-forma 2:
-Adaptar as funções de summary ou, de alguma outra forma, centralizar todas as estruturas de Summary em um único dicionário de uma forma lógica e conceitualmente correta. Facilitando assim, a função de traffic context, obter as estruturas de Summary e então extrair os dados relevantes e necessários para criar ou atualizar entrada de DeviceEntry em traffic_summary.
+Percorrer todo frame parseado de forma lógica, proucurando estruturas de Summary, obter elas, centralizar temporariamente todas as estruturas de Summary em um único dicionário de uma forma lógica e conceitualmente correta. E começar a obter os dados relevantes para criar ou atualizar as entry(s) de TrafficSummary.
+Facilitando assim, a função de traffic_summarize ou create entry da DLT específica, obter as estruturas de Summary do pacote parseado, centralizar elas, e então extrair os dados relevantes e necessários para criar ou atualizar as entry(s) em TrafficSummary.
 Provavelmente ficando em alguma dessas formas:
 forma 1:
 summaries = {
@@ -201,16 +951,6 @@ summaries = {
 
 Observação: no caso da parte de "segment", eu pensei sobre os termos técnicos específicos como "datagram" ou "message" mas não sei como poderia utilizar eles, pois eles não parecem ser realmente necessários nesse caso.
 
-em busca de cada estrutura de Summary gerado por parser de cada DLT ou camada diferente? exemplo:
-Função de parse da DLT_IEEE802_11_RADIO cria FrameSummary, função de parse da DLT_EN10MB cria FrameSummary, função de parse da camada 3 cria PacketSummary, função de parse da camada 4 cria SegmentSummary, e função de parse da camada 5 em diante criar DataSummary para cada payload carregado.
-
-Esse é só um exemplo, pois existem alguns problemas:
-A função summarize_dot11 assume que existe dicionários como "eapol" sem verificar os dados do conteúdo parseado, que indicam a presença de certos dicionários como "eapol", essa é a questão, a função de "summarize" do parse principal de alguma DLT como: DLT_IEEE802_11_RADIO, deve ser responsável por percorrer o conteúdo do frame parseado de forma lógica de acordo com o protocolo, e buscar dicionários como "eapol" de acordo com os dados do resultado do frame parseado, como frame_type e frame_subtype.
-
-Essas funções não estou utilizando a função auxiliar "get_nested".
-
-Por que ainda estou pensando/considerando a ideia de extender/atualizar a função unpack para poder receber uma callback chamada "descriptor" que será usada para criar um dicionário com a descrição do conteúdo parseado pela callback "parser" de unpack, ainda teria que ver melhor a forma como isso iria ser feito, mas o importante seria a ideia de gerar o dicionário "description" para facilitar o trabalho da função de summarize da DLT específica, que irá apenas obter o description para atribuir à variável específica dentro do dataclass de Summary.
-
 DeviceEntry:
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -227,17 +967,70 @@ class DeviceEntry:
     last_seen: float = 0.0
     sessions: list = field(default_factory=list)
    
-Em "layers: dict = {"l2": {}}" acredito que não necessáriamente "l2" precise ser um dicionário, acho que seria melhor se fosse um dataclass com o FrameSummary.
+Em "layers: dict = {"l2": {}}" "l2" não irá ser um dicionário, irá ser um dataclass de FrameSummary da DLT_IEEE802_11_RADIO por exemplo.
 
-Dando contexto maior sobre o problema:
+Acho interessante essas estruturas:
 
-Atualmente o repo de pktparsers:
+pktparsers/
+├── layers/                          # parsers puros — não mudam
+│   ├── registry.py # também irá mapear DLT para função de update de traffic
+│   ├── l2/
+│   │   └── ieee802/
+│   │       ├── dot11/
+│   │       │   ├── parse.py
+│   │       │   ├── parsers/
+│   │       │   └── summary.py       # FrameSummary + summarize_dot11()
+│   │       └── dot3/
+│   │           └── summary.py       # FrameSummary + summarize_en10mb()
+│   ├── l3/
+│   │   ├── parsers.py
+│   │   └── summary.py               # PacketSummary + summarize_ip(), summarize_arp()
+│   └── l4/
+│       └── summary.py               # SegmentSummary
+├── traffic/
+│   ├── __init__.py
+│   ├── models.py                    # DeviceEntry, TrafficSummary, L2Stats, etc
+│   ├── context.py                   # TrafficContext
+├── dissector.py                     # Dissector class + DissectionResult
+└── common/
+    ├── parser.py
+    ├── filter_engine.py
+    └── ...
 
 
-Atualmente framesniff:
+
+class Dissector:
+    def __init__(self):
+        self.traffic = TrafficContext()
+
+    def dissect(self, dlt, packet):
+        parser = get_parser(dlt)
+
+        parse_ctx = ParseContext(packet)
+        summary_ctx = SummaryContext()
+
+        parsed = parser(
+            packet,
+            parse_ctx=parse_ctx,
+            summary_ctx=summary_ctx
+        )
+
+        self._update_traffic(summary_ctx)
+
+        return DissectionResult(
+            parsed=parsed,
+            summaries=summary_ctx,
+            traffic=self.traffic
+        )
 
 
-Atualmente wnlpy:
+
+
+
+
+
+
+
 
 
 
@@ -264,3 +1057,789 @@ forma 1 (por camada de rede):
 Mas ainda tem alguns problemas:
 E se for WEP, WPA3 ou WPA enterprise?
 Como funcionaria nas camadas l3+ ? provavelmente da mesma forma mas, de acordo com a estrutura de pacote DLT_EN10MB
+
+
+Então futuramente, se eu estender sniff de framesniff para suportar captura através de outras DLTs como DLT_RAW, dissector recebe DLT_RAW e assim obtem a função de traffic_summarizer relacionada, dessa forma, todo resultado que dissector disponibiliza ou retorna, irá conter apenas um traffic_summary. Pois por exemplo, se a função de parse principal relacionada à DLT_RAW for a de "ip",
+
+Por isso que ainda estou pensando/considerando a ideia de extender/atualizar a função unpack para poder receber uma callback chamada "descriptor" que será usada para criar um dicionário com a descrição do conteúdo parseado pela callback "parser" de unpack, ainda teria que ver melhor a forma como isso iria ser feito, mas o importante seria a ideia de gerar o dicionário "description" para facilitar o trabalho da função de summarize da DLT específica, que irá apenas obter o description para atribuir à variável específica dentro do dataclass de Summary.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+A questão é que, todas as entry(s) dentro de "entries" em TrafficSummary precisam ou vão ser DeviceEntry? haveria algum tipo de captura (a partir de uma DLT específica óbvio) que não faria sentido resumir o trafégo à várias entry(s) de DeviceEntry? ou sempre vou poder técnicamente, resumir o trafégo à vários DeviceEntry(s)? e se for por exemplo, captura de pacotes USB? também faria sentido fazer assim?
+
+Estou pensando nessa estrutura:
+pktparsers/layers/summaries/:
+models.py -> Agrupa cada dataclass correspondente a uma PDU específica:
+frame.py
+packet.py
+
+Nessas estruturas de Summary pode ter uma variável indicando o tipo de summary (ip, arp ou outro protocolo ou dlt específica como "radio" indicando que o frame é ), dessa forma, as funções de criação de DeviceEntry ou algum outro tipo de Entry, poderão acessar essa estruturas, e acessa os dados corretamente de acordo com o tipo de summary em uma variável padrão como (summary_type ou um nome mais padrão e profissional relacionado a esse contexto de problema). através dos summaries
+
+Algumas estruturas como:
+
+ # pktparsers/summaries/frame.py
+
+from dataclasses import dataclass, field
+
+from typing import Optional
+
+@dataclass
+
+class EapolSummary:
+
+    message: int           # 1, 2, 3, 4
+
+    has_mic: bool
+
+    has_anonce: bool
+
+    flags: list[str] = field(default_factory=list)
+
+@dataclass
+
+class AuthSummary:
+
+    protocol: str          # "eapol", "eap", "radius"
+
+    eapol: Optional[EapolSummary] = None
+
+@dataclass
+
+class FrameSummary:
+
+    # Identidade
+
+    frame_type: int
+
+    frame_subtype: int
+
+    # L2 dot11
+
+    bssid: Optional[str] = None
+
+    sa: Optional[str] = None
+
+    da: Optional[str] = None
+
+    ta: Optional[str] = None
+
+    ra: Optional[str] = None
+
+    # Rádio
+
+    channel: Optional[int] = None
+
+    signal_dbm: Optional[int] = None
+
+    # Aplicação
+
+    ssid: Optional[str] = None
+
+    auth: Optional[AuthSummary] = None  # genérico, não "eapol" direto
+
+    # Flags de comportamento
+
+    is_retry: bool = False
+
+    is_broadcast: bool = False
+
+
+
+
+
+
+
+@dataclass
+
+class DeviceEntry:
+
+    addr: str                          # MAC, IP, ou o endereço principal da camada capturada
+
+    role: str = "unknown"              # "ap", "sta", "unknown"
+
+    ssid: Optional[str] = None
+
+    associated_bssid: Optional[str] = None
+
+    vendor: Optional[str] = None
+
+    channels_seen: set = field(default_factory=set)
+
+    signal_dbm_samples: list = field(default_factory=list)
+
+    frames_sent: int = 0
+
+    frames_received: int = 0
+
+    probe_reqs: int = 0
+
+    probe_resps: int = 0
+
+    auths: int = 0
+
+    deauths: int = 0
+
+    retries: int = 0
+
+    handshakes: dict = field(default_factory=dict)  # {bssid: {msg1, msg2, msg3, msg4}}
+
+    last_seen: float = field(default_factory=time.time)
+
+
+
+
+
+Estão literalmente acopladas à DLT_IEEE802_11 e DLT_IEEE802_11_RADIO, elas batem justamente no problema que mencionei, devo ter uma estrutura DeviceEntry global? ou seja, que agrupara de forma abstrata, todas os dados coletados dos summaries, exemplo:
+
+# pktparsers/layers/l2/ieee802/dot11/models.py
+
+from dataclasses import dataclass, field
+from typing import Optional, Set
+import time
+
+@dataclass
+class L2Stats:
+    """Estatísticas de camada 2 (IEEE 802.11)"""
+    addr: dict = None
+    channels_seen: Set[int] = field(default_factory=set)
+    ssid: Optional[str] = None
+    frames_sent: int = 0
+    frames_received: int = 0
+    retry_count: int = 0
+    total_frames: int = 0
+    vendor: Optional[str] = None
+    
+    @property
+    def percent_retry(self) -> float:
+        if not self.total_frames:
+            return 0.0
+        return (self.retry_count / self.total_frames) * 100
+
+@dataclass 
+class SecurityInfo:
+    eapol_messages_seen: Set[int] = field(default_factory=set)  # {1,2} = handshake capturável
+    handshake_complete: bool = False
+    pmkid_seen: bool = False
+    encryption: Optional[str] = None   # "WPA2/RSN", "WPA3", etc
+    akm_suites: list = field(default_factory=list)
+
+@dataclass
+class DeviceEntry:
+    addr: str                          # MAC, IP, ou endereço principal
+    role: str = "unknown"              # "ap", "sta", "unknown"
+    associated_bssid: Optional[str] = None
+    l2: L2Stats = field(default_factory=L2Stats)
+    security: SecurityInfo = field(default_factory=SecurityInfo)
+    last_seen: float = field(default_factory=time.time)
+    first_seen: float = field(default_factory=time.time)
+    
+    def __hash__(self):
+        return hash(self.addr)
+    
+    def __eq__(self, other):
+        return isinstance(other, DeviceEntry) and self.addr == other.addr
+
+
+addrs = {"l2": "MAC", "l3": "IP", "l4": "IP", "l5": "IP", "l7": "IP"}
+sessions = 
+ 
+
+
+
+
+
+Ajustei, acho que essa forma está ótima:
+
+@dataclass
+class DissectionResult:
+    parsed: dict
+    traffic: TrafficSummary     # referência ao estado acumulado
+    summaries: dict,
+    entry: dict
+
+class Dissector:
+    """
+    Mantém estado entre chamadas (TrafficContext).
+    Responsável por: parse -> summary -> atualização de traffic.
+    """
+    def __init__(self, dlt: str | ):
+        self.dlt = dlt
+        self.traffic_ctx = TrafficContext(dlt=dlt)
+        self.parser = get_parser(dlt)
+
+    def dissect(self, packet: bytes, offset: int = 0) -> DissectionResult:
+        # 1. parse puro, internamente gera o seu summary, assim como os parser principais (De acordo com outras DLTs e camadas (ou protocolos)) internos chamados dentro dele.
+        parsed = self.parser(packet, offset)
+
+        traffic_summary, summaries, entry = self.traffic_ctx.traffic_updater(parsed) # internamente traffic_updater iria chamar função que extrai summaries, e chamar summary analizer que irá gerar as entry(s) a partir dos summaries.
+
+        return DissectionResult(
+            parsed=parsed,
+            traffic=traffic_summary,
+            summaries=summaries,
+            entry=entry
+        )
+
+    @property
+    def traffic(self) -> TrafficSummary:
+        return self.traffic_ctx.summary
+
+
+"""
+Provavelmente a estrutura de parsed vai ser assim agora:
+Exemplo de uma frame DLT_IEEE802_11_RADIO na pior/ideal situação:
+
+{
+    "frame": { # primeiro parse chamado (parse de DLT_IEEE802_11_RADIO)
+        "frame": { # o parse de DLT_IEEE802_11_RADIO internamente chamou o parse da DLT_EN10MB possívelmente através do módulo de parse LLC.
+            "packet": { # O parse da DLT_EN10MB chamou o parse da camada 3, passando o protocolo específico "ip" por exemplo, (protocol="ip").
+                "segment": { # O parse do protocolo IP chamou o parse da camada 4, passando tipo de protocolo a ser parseado (protocol="tcp")
+                    "data": { # O parse do protocolo TCP chamou o parse da camada l5 ou l7 dependendo do tipo de data identificado.
+                        "data": {...} # supondo que o parse seja da camada 5, ele chama o parse do payload relacionada à camada 7.
+                    }
+                }
+            }
+        } 
+    }
+}
+
+Isso porque cada parse principal (principal baseado no criterio: DLT ou Camada de rede) retorna seu próprio resultado parseado com essa nova estrutura:
+
+"pdu": {
+    "summary": {},
+    "raw": bytes,
+    dicionários com chaves que vão variar de acordo com resultado de parse, exemplo:
+    "rt_hdr": {},
+    "mac_hdr": {}
+}
+
+"""
+
+Ou seja, traffic_updater vai ser o método que foi definido no momento da própria instância de traffic context, através da DLT passada para traffic context, traffic context internamente, obtém a função relacionada à DLT principal passada incialmente para dissector, para receber o resultado "parsed" e gerar a entry que irá ser alocada em TrafficSummary.
+Dessa forma, chego a conclusão que talvez seja melhor então, ter duas variáveis em TrafficSummary: devices e entries.
+"devices" irão ter várias entradas de DeviceEntry.
+"entries" irá ter várias entradas agrupando outras informações. 
+
+Dessa forma, tudo indica que a função de gerar entry obtida através da DLT principal passada para Dissector inicialmente, irá analisar os summaries coletados e centralizados, para assim, extrair a informações relevantes para
+criar/popular a estrutura DeviceEntry que será global. Mas a questão é como ela será global, provavelmente ela precisará ser genérica ao ponto de atender a todos as outras DLT e padrões diferentes, como bluetooth e USB, através de nomes genéricos como:
+addrs: list[dict]
+vendors: list[str]
+security: dict # informações
+sessions
+
+Ou a estrutura de DeviceEntry global poderá ser algo como:
+@dataclass
+class L2Stats:
+    role: str = "unknown"              # "ap", "sta", "unknown"
+    ssid: Optional[str] = None
+    associated_bssid: Optional[str] = None
+    frames_sent: int = 0
+    frames_received: int = 0
+    retry_count: int = 0
+    probe_requests: int = 0
+    probe_responses: int = 0
+    beacons: int = 0
+    auths: int = 0
+    deauths: int = 0
+    total_frames: int = 0
+    vendor: Optional[str] = None
+    
+    @property
+    def percent_retry(self) -> float:
+        if not self.total_frames:
+            return 0.0
+        return (self.retry_count / self.total_frames) * 100
+
+class DeviceEntry:
+    addr: str                          # MAC, IP, ou endereço principal
+    role: str # através de uma analise de summaries l2, l4, l5 e l7, poderiamos deduzir o papel dele na rede, como: "server", "smartphone", "iot" etc...
+    security: SecurityInfo = field(default_factory=SecurityInfo)
+    last_seen: float = field(default_factory=time.time)
+    first_seen: float = field(default_factory=time.time)
+    packets_sent: int = None
+    packets_received: int = None
+    channels_seen: Set[int] = field(default_factory=set) # pode parecer acoplado à capturas wireless, mas é o preço que se paga por tentar definir uma estrutura global DeviceEntry que tenta atender à todo tipo de dissecação de protocolos de padrões de comunicação de rede.
+    layers: LayersSummary[L2Stats, L3Stats ...] = None
+    sessions: SessionsSummary[EapolSummary, EapSummary, RadiusSummary, TlsHandshakeSummary, HttpsHandshakeSummary] = None
+    outras variáveis com nomes genéricos, ou essenciais relacionadas à uma DLT ou camada específica.
+
+Assim, cria flexibilidade, podendo fazer com que essa função de gerar entry, possa retorna:
+DeviceEntry e/ou outra Entry agrupando informações específica não relacioandas à dispositivo(s)
+
+Agora a questão é, será que vou agrupar esses módulos relacionados à:
+função de gerar entry(s).
+dataclasses.
+Por DLT e Camada de rede também? acho que faz sentido.
+Com execeção de TrafficSummary e TrafficContext?
+
+Mas explicando melhor sobre essa função de gerar entry(s), ela irá percorrer de forma profunda o pacote parseado, em busca de dicionários de summary, e assim, irá centralizar eles dessa forma:
+{
+    "frame":{ 
+        "frame": { 
+        }
+    },
+    "packet": {},
+    "segment": {},
+    "data": {
+        "data": {...} 
+    }
+}
+E assim, facilitar a busca e coleta de dados dessas estruturas de summary centralizadas, gerar DeviceEntry e/ou outra entry.
+Essa função vai retorna essa estrutura de summary centralizada, a(s) entry(s) geradas (DeviceEntry e/ou outra Entry), e o traffic summary que ela atualizou.
+
+Dessa forma por exemplo, a estrutura de Summary de frames Dot11 irá utilizar outras estruturas internas, como:
+
+Provavelmente a função que gera entry irá ter retornar duas entradas DeviceEntry 
+Provavelmente irei ter atribuir os summaries centralizados, ao próprio dicionário do resultado do pacote parseado.
+E se a própria função de summary do parse da DLT específica, dentro de summary ter um dict:
+
+Usando uma estrutura DeviceEntry relacionado à própria DLT, dessa forma, a função de gerar entry(s) relacionada à própria DLT, irá obter o summary e o dicionário com as informações dos dispositivos em "devices", fazendo que ela retorne então possívelmente 3 entradas (DeviceEntry, DeviceEntry, Entry qualquer). Dessa forma, chego a conclusão que pode não ser possível que as funções de gerar entry(s) tenha uma estrutura de padrão de retorno universal, e que por isso, a função de traffic_updater deve estar preparada para lidar com isso.
+
+
+
+
+
+
+
+
+
+
+
+
+Então agora eu preciso criar:
+
+Atualmente a ideia é ter uma função de summarize por DLT ou protocolo específico, ela irá analisar o "result" final de ParseContext, e irá gerar o summary, esse summary vai ser armazenado em "result", dessa forma:
+result["summary"] = summary
+em result vai ficar assim:
+"summary": {
+   "frame":
+   chaves e valores relacionados ao frame,
+   "devices": {"mac": Dot11Device, "mac": },
+   "algum outro summary": ,
+}
+
+
+Depois irá ter a função de summaries_analyser que irá consumir a estrutura summaries de DissectContext, e então gerar DeviceEntry global e/ou outras Entry(s) e então atualizar TrafficSummary.
+Essa função de summaries_analyser irá iterar sobre cada chave e valor do dict, verificar a chave e utilizar ela para obter a função da tabela de summary_anali a função que analisa o summary 
+
+
+
+E se as próprias funções internas de parse gerarem Summary diretamente com os valores das variáveis que elas possuem naquele momento de parse? por exemplo:
+parser de payload eapol:
+
+
+
+ e dessa forma, apenas chamasse a função de ParseContext responsável por adicionar o summary na variável "summary" de ParseConetxt. Assim, eliminando a necessidade de uma função única de summarize que recebe o result de ParseContext, obtém os dados através de chaves podem mudar. 
+Mas pensei em um problema que pode aparecer, mas já pensei em uma possível solução, acho que teoricamente isso poderia quebrar a ideia de outros módulos ou programas poderem chamar funções de parse de forma independente como:
+layers/l2/ieee802/dot11/parsers/ies.py
+def ie_dispatch(value: tuple, **kwargs) -> dict:
+    def _fallback(tag_length: int, **k):
+        return unpack(f"{tag_length}s")
+
+    ie_result = {}
+    tag_number, tag_length = value
+
+    ctx = ParseContext.current()
+    start_offset = ctx.offset
+    expected_end = start_offset + tag_length
+
+    try:
+        entry = IE_DISPATCH.get(tag_number, {})
+        ie_result = {
+            "tag_number": tag_number,
+            "tag_length": tag_length,
+            "name": entry.get("name"),
+            "description": entry.get("description")
+        }
+        ie_result["data"] = run_dispatch(
+            IE_DISPATCH,
+            tag_number,
+            fallback=_fallback,
+            tag_length=tag_length
+        )
+
+    except Exception as e:
+        logger.debug(f"IE parser error for tag {tag_number} value={value} entry={entry} : {e}")
+
+    finally:
+        if ctx.offset != expected_end:
+            logger.debug(
+                f"IE tag {tag_number} offset drift: expected={expected_end} got={ctx.offset} "
+                f"(drift={ctx.offset - expected_end:+d})"
+            )
+            ctx.offset = min(expected_end, len(ctx.frame))
+
+    return ie_result
+ 
+Mas cheguei a conclusão de que o próprio módulo ou programa poderá criar um ParseContext para chamar uma função de parse IE por exemplo. A diferença vai ser que "frame" vai ser um blob.
+
+
+Explicando o fluxo atual:
+ParseContext cria um summary.
+DissectContext expõe método para adicionar o summary de
+
+
+A questão:
+
+Dando contexto sobre algumas estruturas e funções vou citar:
+Exemplo de "result" de ParseContext:
+{
+    "rt_hdr": {},
+    "mac_hdr": {},
+    "body": {},
+}
+
+_dissect_context = ContextVar("_dissect_context")
+
+@dataclass
+class DissectContext:
+    summaries: dict[str, list] = field(default_factory=dict)
+    result: dict | None = None
+
+    def __enter__(self):
+        self._token = _dissect_context.set(self)
+        return self
+
+    def __exit__(self, *args):
+        _dissect_context.reset(self._token)
+
+    def add_summary(self, protocol: str, summary):
+        self.summaries.setdefault(protocol, []).append(summary)
+
+    @classmethod
+    def current(cls):
+        return _dissect_context.get(None)
+
+@dataclass
+class DissectionResult:
+    parsed: dict
+    summaries: dict,
+    traffic: TrafficSummary
+
+@dataclass 
+class TrafficSummary: 
+    devices: dict[str, DeviceEntry] 
+    entries: set | list | dict
+
+@dataclass
+class DeviceEntry:
+    device_id: str | int = None
+    first_seen: float = field(default_factory=time.time)
+    last_seen: float = field(default_factory=time.time)
+    protocol_data: dict[str, Any] = field(default_factory=dict) # {"dot11": {"mac": {"device": Dot11Device, "others_entries": Dot11SpecificEntry}}, "dot3": {"mac": {"device": Dot3Device, "others_entries": Dot3SpecificEntry}}, "ip": {"ip": {"device": IpDevice, "others_entries": IpSpecificEntry}}, "tcp": {"ip": {"device": TcpDevice, "others_entries": TcpSpecificEntry}}}
+
+    """
+    # relationships: dict[str, dict[str, dict]] = None # essa variável evitaria ter que definir "relationships" para cada estrutura de Device de um padrão ou protocolo específico, como Dot11Device. Ficando assim exemplo: {"dot11": {"mac": {"recv": int, "sent": int, "retry": int}, "mac": {"recv": int, "sent": int, "retry": int}}, "dot3": {"mac": {"recv": int, "sent": int, "retry": int}, "mac": {"recv": int, "sent": int, "retry": int}}}
+    """
+
+traffic/context.py
+class TrafficContext:
+    def __init__(self, dlt: str | int):
+
+        self.dlt = dlt
+
+        self.summary = TrafficSummary()
+
+    def update(summaries: dict[str, Any]):
+        self.summary.total_packets += 1
+        for protocol, protocols_summaries in summaries.items():
+            summary_analyzer = SUMMARY_ANALYSER_DISPATCH.get(protocol)
+            for protocol_summary in protocols_summaries:
+                summary_analyzer(protocol, protocol_summary, self.summary)
+
+
+dissector.py:
+class Dissector:
+    def __init__(self, dlt: str | int): 
+        self.dlt = dlt 
+        self.traffic_ctx = TrafficContext(dlt=dlt) 
+        self.parser = get_parser(dlt)
+
+    def dissect(self, packet: bytes, offset: int = 0):
+        with DissectContext() as dissect_ctx:
+
+            parsed = self.parser(packet, offset)
+
+            dissect_ctx.result = parsed
+
+            traffic_summary = self.traffic_ctx.update(
+                dissect_ctx.summaries
+            )
+
+            return DissectionResult(
+                parsed=parsed,
+                summaries=dissect_ctx.summaries,
+                traffic=traffic_summary
+            )
+
+ParseContext:
+_parse_context = ContextVar("_parse_context")
+class ParseContext:
+    def __init__(self, frame: bytes, start_offset: int = 0):
+        self.frame = frame
+        self.offset = start_offset
+        self.result = {}
+        self.summary = {}
+        self._token = None
+
+    def __enter__(self):
+        self._token = _parse_context.set(self)
+        return self
+
+    def __exit__(self, *args):
+        _parse_context.reset(self._token)
+
+    @staticmethod
+    def current():
+        return _parse_context.get(None)
+
+    def set(self, key, value):
+        self.result[key] = value
+
+    def get(self, key, default=None):
+        return self.result.get(key, default)
+
+    def update(self, data):
+        self.result.update(data)
+
+
+Esse é um exemplo atual, preciso decidir/melhorar ele, pois ele vai ser o exemplo base para todos os outros parsers relacionados à padrões de comunicações, DLTs e protocolos:
+l2/ieee802/dot11/parsers/summary.py:
+@dataclass 
+class Dot11Device: 
+    ssids: set[str] 
+    channels_seen: set[int] 
+    role: str # diz se é AP ou STA
+    # relationships: dict[str, dict # como eu já disse, tenho que decidir se ela vai ser aqui ou não.
+
+"""
+irá ser definida se eu escolher a forma:
+receber "result" de ParseContext para gerar summary.
+def summarize():
+    pass
+
+Caso contrario, ou seja, usar a outra forma:
+sub-parsers a partir da função principal de parse, alimentam o summary de ParseContext.
+Então não será necessário uma função de summarize, pois o summary de ParseContext, gerado dinâmicamente através de sub-parsers chamados a partir da função principal de parse, já conseguem gerar uma estrutura suficientemente boa para uma função de analyzer de summary pode gerar entries para alimentar/atualizar TrafficSummary.
+"""
+
+def analyzer(summary, traffic_summary: TrafficSummary): # Analisa o summary do frame dot11, cria/atualiza DeviceEntry global e outras entries caso seja necessário, e adiciona elas no traffic_summary. Talvez seja possível/necessário que essa função acesse a estrutura "devices" de traffic_summary, para acessar a entrada de um dispositivo específico, e realizar comparações e outras operações. 
+    pass
+
+Exemplo de parse de DLT específica (DLT_IEE802_11):
+def parse(frame: bytes, offset: int = 0) -> dict:
+    logger.debug("Frame parse")
+    try:
+        with ParseContext(frame, offset) as ctx:
+            ctx.set("fcs", detect_fcs())
+            if ctx.offset >= len(ctx.frame):
+                logger.debug("Empty 802.11 frame after radiotap, skipping")
+                return ctx.result
+            ctx.set("mac_hdr", mac_header.parser())
+            ctx.set("body", body.parser())
+            dissection_ctx = DissectContext.current()
+            """
+            Tenho que decidir se vai dessa forma (utilizando função de summarize que recebe "result"):
+            summary =  summarizer_dot11(ctx.result)
+            ctx.set("summary", summary)
+            if dissection_ctx:
+                dissection_ctx.add_summary("dot11", summary)
+
+            Ou da forma dinâmica, fazendo que tenha que fazer apenas:
+            ctx.set("summary", summary)
+            if dissection_ctx:
+                dissection_ctx.add_summary("dot11", ctx.summary)
+            """
+    except Exception as e:
+        logger.debug(f"Frames parser error: {e}")
+    return ctx.result
+
+Preciso escolher a forma de como as funções principais relacionadas à uma DLT ou camada de rede específica, irão gerar o summary de pacote ou frame, pensei nessas formas:
+Forma 1:
+Função de summarize que recebe o "result" de ParseContext, e gera o summary que será adicionado em "summaries" de DissectContext, e no "result" de ParseContext, e que também será utilizado pela função analyse_summary para gerar estruturas como DeviceEntry e outras entry(s) específicas.
+
+Forma 2:
+As funções internas de parse chamadas a partir da função principal (como parse de dot11), irão alimentar o summary de ParseContext dinâmicamente, exemplo:
+parse de mac_header:
+def parser(**kwargs) -> dict:
+    logger.debug("MAC Header parse")
+
+    def _parser(fc_val: int, **k) -> dict:
+        protocol_version = fc_val & 0b11
+        f_type = (fc_val >> 2) & 0b11
+        f_subtype = (fc_val >> 4) & 0b1111
+        to_ds = (fc_val >> 8) & 1
+        from_ds = (fc_val >> 9) & 1
+        protected = bool(fc_val & 0x4000)
+        
+        type_name = FRAME_TYPES.get(f_type)
+        subtype_name = FRAME_SUBTYPES.get(f_type, {}).get(f_subtype)
+        is_qos = f_type == DATA and bool(f_subtype & 0b1000)
+
+        duration = unpack("<H")
+        
+        addr1 = read_mac()
+        
+        addr2 = addr3 = addr4 = seq = qos = None
+
+        if f_type == CTRL:
+            if f_subtype in (CTRL_BLOCK_ACK_REQUEST, CTRL_BLOCK_ACK, CTRL_PS_POLL, 
+                             CTRL_RTS, CTRL_CF_END, CTRL_CF_END_ACK):
+                addr2 = read_mac() 
+        else:
+            addr2 = read_mac() 
+            addr3 = read_mac() 
+            seq = unpack("<H", parser=lambda v, **k: v >> 4)
+
+            if to_ds and from_ds:
+                addr4 = read_mac() 
+
+        ra = addr1
+        ta = addr2 if addr2 else None
+        a3 = addr3 if addr3 else None
+        a4 = addr4 if addr4 else None
+
+        sa = da = bssid = None
+        if to_ds == 0 and from_ds == 0:
+            sa, da, bssid = ta, ra, a3
+        elif to_ds == 0 and from_ds == 1:
+            sa, da, bssid = a3, ra, ta
+        elif to_ds == 1 and from_ds == 0:
+            sa, da, bssid = ta, a3, ra
+        elif to_ds == 1 and from_ds == 1:
+            sa, da, bssid = a4, a3, None
+
+        # QoS Control
+        if is_qos:
+            qos = unpack("<H")
+
+        result = {
+            "fc": {
+                "protocol_version": protocol_version,
+                "type": f_type,
+                "type_name": type_name,
+                "subtype": f_subtype,
+                "subtype_name": subtype_name,
+                "tods": to_ds,
+                "fromds": from_ds,
+                "protected": protected,
+            },
+            "duration_id": duration,
+            "ra": ra, "ta": ta, "sa": sa, "da": da, "bssid": bssid,
+            "sequence_number": seq,
+            "qos_control": qos
+        }
+
+        """
+        parse_ctx = ParseContext.current()
+        fc = result.get("fc")
+        parse_ctx.summary["mac_hdr"] = MacHeaderSummary(frame_type=f_type, frame_type_name=type_name, receiver_address=ra, transmissor_address=ta, source_address=sa, destination_address=da, ...) ou mac_header_summarize(result) esse função iria retornar um dict com os principais dados do mac header.
+        Retornando dict através da função mac_header_summarize, irá manter a compatibilidade com o filter_engine, facilitando filtro e acesso pelo usuário, pois será o mesmo result mas sem algumas chaves como qos_control, duration_id, e até mesmo "fc" (ainda tenho que considerar, pois acho que pode fazer sentido manter "fc" apenas com as principais chaves, indicando que também é o resumo de "fc".
+        Se for usando dataclass MacHeaderSummary, fica mais semantico, mas provavelmente vou ter que extender minha função "get_nested" para suportar busca/acesso em dataclasses.
+        """
+
+        return result
+
+    result = {}
+
+    try:
+        result = unpack("<H", parser=_parser)
+    except Exception as e:
+        logger.debug(f"MAC Header parser error: {e}")
+
+    return result
+
+Sobre DeviceEntry:
+
+Meu problema é como vou implementar variável ou dicionário "relationships" indicando todos os dispositivos que o dispositivo já se comunicou. Não sei se defino em DeviceEntry, se Definir em DeviceEntry vai ser algo como:
+relationships: dict[str, dict[str, dict]] = None # exemplo: {"dot11": {"mac": {"recv": int, "sent": int, "retry": int}, "mac": {"recv": int, "sent": int, "retry": int}}, "dot3": {"mac": {"recv": int, "sent": int, "retry": int}, "mac": {"recv": int, "sent": int, "retry": int}}}
+
+Por isso penso na outra forma, definindo diretamente no por exemplo: Dot11Device, por exemplo:
+Dot11Device:
+relationships: dict[str, dict[str, dict]] = None # exemplo: {"mac": {"recv": int, "sent": int, "retry": int}, "mac": {"recv": int, "sent": int, "retry": int}}
+
+
+
+Dando contexto total atualizado:
+
+
+Agora só preciso saber como organizar esse módulos de summary, e como estruturar melhor os arquivos e diretórios.
+Atualmente:
+gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ vim layers/l2/ieee802/dot11/parsers/summary.py
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls
+__init__.py  __main__.py  common  dissector.py  layers  tests
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/
+__init__.py  __pycache__/ l1/          l2/          l3/          l4/          l7/          registry.py  traffic/
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls common/
+__init__.py              builder.py               definitions.py           mac-vendors-export.json  sockets.py
+analyses.py              constants/               filter_engine.py         parser.py                validation.py
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/traffic/
+context.py      definitions.py
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/l2/ieee802/dot11/
+__init__.py   __pycache__/  build.py      builders/     constants.py  parse.py      parsers/      radio/
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/l2/ieee802/dot11/parsers/
+__pycache__/   body.py        common.py      control.py     data.py        ies.py         mac_header.py  management.py  summary.py
+
+Explicando:
+definitions.py é o arquivo que armazena estruturas "dataclass". Em common, ele armazena estruturas dataclass globais. Mas dentro de padrões ou protocolos como "dot11" ele armazenaria dataclass relacionadas ao padrão ou protocolo específico.
+traffic/ contém módulos para criar a classe TrafficContext que será utilizada.
+
+
+Pensei em algo assim:
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls
+__init__.py  __main__.py  common  dissector.py  parsers  tests
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls parsers/
+__init__.py  __pycache__/ l1/          l2/          l3/          l4/          l7/          registry.py  analyses/
+analyses/:
+definitions.py
+traffic/
+summary/:
+   frame/:
+      definitions.py
+      summarize.py
+      analyzer.py
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls common/
+__init__.py              builder.py           mac-vendors-export.json  sockets.py
+analyses.py              constants/               filter_engine.py         parser.py                validation.py
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/traffic/
+context.py      definitions.py
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/l2/ieee802/dot11/
+__init__.py   __pycache__/  build.py      builders/     constants.py  parse.py      parsers/      radio/
+[gus@voidlinux ~/Documents/pktparsers/pktparsers (development)]$ ls layers/l2/ieee802/dot11/parsers/
+__pycache__/   body.py        common.py      control.py     data.py        ies.py         mac_header.py  management.py  summary.py
+pktpars
+dissector.py
+
+Explicando:
+O módulo parse.py contém a função de parse principal de uma DLT ou camada específica de rede específica, exemplo: dot11/ é diretório que representa o padrão ieee80211. Dentro dele contém "parse.py", pois ele está relacionado à DLT_IEEE802_11. Mas existe a DLT_IEEE802_11_RADIO, por isso, existe: "dot11/radio/", esse diretório "radio/" está relacionado à DLT_IEEE802_11_RADIO, dentro dele existe: "parse.py" pois é o parse de uma outra DLT. Outro exemplo: "l3/" representa a camada 3 do modelo OSI, nessa camada existe os protocolos arp, ip etc..., então dentro de "l3/" tem parse.py, que contém a função de parse principal relacionada à todos os protocolos da camada 3. A função ficaria parse(protocol: str | int) protocol pode ser "ip", ethertype ou dsap. Ou seja, quando me refiro a parse principal, me refiro a um parse relacionado a uma DLT ou camada de rede específica, esse parse irá abrir um ParseContext, ter uma função de summarize o summary de ParseContext, e ter uma função que irá analisar todos os summary(s) acumulados na variável "summaries" de DissectContext, esse summary(s) os próprios summarys criados em cada função de parse principal, ou seja, baseada na DLT ou camada de rede específica.
+
+analyses/ contém módulos e estruturas usadas para gerar estruturas de dados que descrevem semanticamente os resultados de parsers.
+summarize.py: irá conter as funções como: dot11(parse_context_summary: dict) .
+analyzer.py: irá conter as funções como dot11(summary) que recebe o summary de ParseContext, que foi gerado dinâmicamente pelos subparsers chamados pelo parse principal da dlt ou camada de rede.
+recebe o summary gerado por pela função do módulo summarize, como: "dot11". do contexto DissectContext. Essa função irá estar pecorrer cada chave e valor de summaries, a chave será usada para obter a função  associada ao protocolo cada summary que o parse principal de alguma DLT ou camada de rede, adicionou, através de dissect_ctx.
+
+
+ 
+
+
+Dúvidas:
+Mas faz sentido manter analyses/ dentro parsers/ ou é melhor deixar separado?:
+anlyses/ parsers/

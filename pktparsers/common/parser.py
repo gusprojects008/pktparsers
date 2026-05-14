@@ -63,6 +63,7 @@ class ParseContext:
         self.frame = frame
         self.offset = start_offset
         self.result = {}
+        self.summary = {}
         self._token = None
 
     def __enter__(self):
