@@ -8,12 +8,13 @@ from contextvars import ContextVar
 from contextlib import contextmanager
 from core.layers.l2.ieee802.dot11.constants import *
 from core.layers.l2.constants import *
+from pktparsers.common.parse.definitions import *
 
 logger = getLogger(__name__)
 
 class MacVendorResolver:
     _vendor_map = None
-    def __init__(self, filepath: str = "./core/common/mac-vendors-export.json"):
+    def __init__(self, filepath: str = "./pktparsers/common/parse/mac-vendors-export.json"):
         if MacVendorResolver._vendor_map is None:
             logger.debug(f"Loading MAC vendors file {filepath} ...")
             try:
@@ -158,11 +159,11 @@ def _add_metadata(raw: bytes, start_offset: int, end_offset: int, fmt: str | dic
     raw_hex = raw[start_offset:end_offset].hex()
     length = end_offset - start_offset
     return {
-        "_metadata_": {
+        METADATA: {
             "start": start_offset,
             "end": end_offset,
             "length": length,
-            "raw": raw_hex,
+            RAW: raw_hex,
             "fmt": fmt,
             "tokens": tokens,
             "sizes": sizes,
@@ -170,8 +171,7 @@ def _add_metadata(raw: bytes, start_offset: int, end_offset: int, fmt: str | dic
         }
     }
 
-#def unpack(fmt: str = None, parser: callable = None, descriptor: str | callable = None, **kwargs) -> dict:
-def unpack(fmt: str = None, parser: callable = None, **kwargs) -> dict:
+def unpack(fmt: str = None, parser: callable = None, summarizer: str | callable = None, **kwargs) -> dict:
     def value_to_dict(value):
         return {i: v for i, v in enumerate(value)} if isinstance(value, tuple) else value
 
@@ -201,12 +201,18 @@ def unpack(fmt: str = None, parser: callable = None, **kwargs) -> dict:
 
     ctx.offset = future_offset
 
-    result["value"] = value_to_dict(value)
+    result[VALUE] = value_to_dict(value)
+
+    parser_result = None
 
     if parser:
         parser_result = parser(value, **kwargs)
-        result["parsed"] = parser_result
-        #result["description"] = descriptor(parser_result, **kwargs) if callable(descriptor) else descriptor
+        result[PARSED] = parser_result
+
+    if summarizer:
+        summarizer_result = summarizer(parser_result, **kwargs) if (parser_result and callable(summarizer)) else summarizer
+        if summarizer_result:
+            result[SUMMARY] = summarizer_result
 
     return result
 

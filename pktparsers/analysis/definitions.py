@@ -1,33 +1,3 @@
-from contextvars import ContextVar
-from dataclasses import dataclass, field
-
-_dissect_context = ContextVar("_dissect_context")
-
-@dataclass
-class DissectContext:
-    summaries: dict[str, list] = field(default_factory=dict)
-    result: dict | None = None
-
-    def __enter__(self):
-        self._token = _dissect_context.set(self)
-        return self
-
-    def __exit__(self, *args):
-        _dissect_context.reset(self._token)
-
-    def add_summary(self, protocol: str, summary):
-        self.summaries.setdefault(protocol, []).append(summary)
-
-    @classmethod
-    def current(cls):
-        return _dissect_context.get(None)
-
-@dataclass
-class DissectionResult:
-    parsed: dict
-    summaries: dict,
-    traffic: TrafficSummary
-
 @dataclass 
 class TrafficSummary: 
     devices: dict[str, DeviceEntry] 

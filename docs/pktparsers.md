@@ -10,7 +10,7 @@ Esta seção contém percepções coletadas durante o desenvolvimento; nenhuma e
 * Adicionar verificações adicionais de detecção de erros.
 * Adicionar uma seção de todos os artigos e manuais que explicam e definem os padrões dos frames, incluindo seus campos valores etc...
 * Melhorar filtro, permitir com que o usuário possa passar diretamente o nome de um tipo de frame, e assim obter o filtro que corresponde a ele.
-* Substituit criação de dicionários brutos como resultado em funções internas de parse (mac header) por estruturas dataclass.
+* Substituir todos os hardcodes de tamanhos, struct formats e nomes de chaves de resultado de parsers, por constantes.
 
 ## Local para anotar as melhorias e correções durante o projeto (pode ser utilizado no release)
 * Exemplo
@@ -39,9 +39,24 @@ radiotap/parse.py
 
 * O módulo parse.py contém a função de parse principal de uma DLT ou camada específica de rede específica, exemplo: dot11/ é diretório que representa o padrão ieee80211. Dentro dele contém "parse.py", pois ele está relacionado à DLT_IEEE802_11. Mas existe a DLT_IEEE802_11_RADIO, por isso, existe: "dot11/radio/", esse diretório "radio/" está relacionado à DLT_IEEE802_11_RADIO, dentro dele existe: "parse.py" pois é o parse de uma outra DLT. Outro exemplo: "l3/" representa a camada 3 do modelo OSI, nessa camada existe os protocolos arp, ip etc..., então dentro de "l3/" tem parse.py, que contém a função de parse principal relacionada à todos os protocolos da camada 3. A função ficaria parse(protocol: str | int) protocol pode ser "ip", ethertype ou dsap. Ou seja, quando me refiro a parse principal, me refiro a um parse relacionado a uma DLT ou camada de rede específica, esse parse irá abrir um ParseContext, ter uma função de summarize o summary de ParseContext, e ter uma função que irá analisar todos os summary(s) acumulados na variável "summaries" de DissectContext, esse summary(s) os próprios summarys criados em cada função de parse principal, ou seja, baseada na DLT ou camada de rede específica.
 
-* poderia extender unpack para suportar callback "descriptor", que recebe os próprios values desempacotados, para interpretar e retornarum dict de description, ou uma estrutura de summary. Mas acho que não é necessário.
+* Poderia extender unpack para suportar callback "descriptor", que recebe os próprios values desempacotados, para interpretar e retornarum dict de description, ou uma estrutura de summary. Mas acho que não é necessário, pois "summary" de ParseContext já pode manter esses/descriptions/resumos.
+
+* subparsers alimentam "ctx.summary" de "ParseContext" dinamicamente. A razão prática mais importante: cada subparser já tem os dados em mãos no momento certo, sem precisar renavegar o parsed depois.
+
+* Dict para summaries internos, não dataclass. Summaries de subparsers são estruturas abertas que variam. Dataclass aqui seria rigidez desnecessária. Mas esses dicts de summary irão manter o mesmo nome de chaves do result do subparser específico naquele momento, para mnater compatibilidade entre filtros.
+
+* relationships pertence ao protocolo, não ao DeviceEntry global.
+
+* Se por exemplo, um frame tiver dois mac headers, não será possível adicionar o outro mac header no summary de parse context, até mesmo porque a função de parse de dot11 quebraria antes disso.
+
+* Criar módulos através de critérios como: common/ contém diretórios e módulos com constantes, funções e estruturas globais, que são usadas durante todo o projeto.
+
+* /layers/analyes/ porque irá conter as funções, classes, constantes e estruturas relacionadas à analise do resultado dos parsers parsers de protocolos dentro das camadas, para assim, alimentar a estruturas de analise comuns/globais do projeto, em /common/analyses/.
 
 # Decisões de arquitetura pendentes:
+* E se ao invés de usar dataclasses, usar algo como:
+def Dot11Device(
+Ou talvez seja melhor extender/melhorar get_nested para suportar acesso à dataclasses.
 * Exemplo
 
 ## Referências
