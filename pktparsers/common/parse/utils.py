@@ -58,6 +58,15 @@ def random_mac():
 
 mac_for_bytes = lambda mac : bytes(int(hex_byte, 16) for hex_byte in mac.split(":"))
 
+def insert_item(container: dict, key: str | int, val):
+    if key not in container:
+        container[key] = val
+        return
+    if not isinstance(container[key], dict) or not all(k.isdigit() for k in container[key]):
+        container[key] = {"1": container[key]}
+    idx = str(len(container[key]) + 1)
+    container[key][idx] = val
+
 _parse_context = ContextVar("_parse_context")
 class ParseContext:
     def __init__(self, frame: bytes, start_offset: int = 0):
@@ -77,39 +86,6 @@ class ParseContext:
     @staticmethod
     def current():
         return _parse_context.get(None)
-
-    def set(self, key, value):
-        self.result[key] = value
-
-    def get(self, key, default=None):
-        return self.result.get(key, default)
-
-    def update(self, data):
-        self.result.update(data)
-
-def find_path(root, target, path=None):
-    if path is None:
-        path = []
-
-    if root is target:
-        return path
-
-    if isinstance(root, dict):
-        for k, v in root.items():
-            res = find_path(v, target, path + [k])
-            if res:
-                return res
-
-    elif isinstance(root, list):
-        for i, v in enumerate(root):
-            res = find_path(v, target, path + [str(i)])
-            if res:
-                return res
-
-    return None
-
-def clean_path(path):
-    return ".".join([p for p in path if p != "parsed"])
 
 def size_to_struct_fmt(size: int) -> str:
     mapping = {
@@ -275,15 +251,6 @@ def detect_fcs(**kwargs) -> bytes | None:
     else:
         return None
 
-def insert_item(container: dict, key: str | int, val: dict | str | int):
-    if key not in container:
-        container[key] = val
-        return
-    if not isinstance(container[key], dict) or not all(k.isdigit() for k in container[key]):
-        container[key] = {"1": container[key]}
-    idx = str(len(container[key]) + 1)
-    container[key][idx] = val
-
 def fail(result: dict, expected_size: int, e: str = "Parser error", debug_msg: str = "Parse error"):
     logger.debug("fail function")
     ctx = ParseContext.current()
@@ -397,3 +364,27 @@ def calc_rates(rates):
         value_rate = (rate & 0x7f) * 500
         list_rates_transmition.append(value_rate)
     return list_rates_transmition
+
+def find_path(root, target, path=None):
+    if path is None:
+        path = []
+
+    if root is target:
+        return path
+
+    if isinstance(root, dict):
+        for k, v in root.items():
+            res = find_path(v, target, path + [k])
+            if res:
+                return res
+
+    elif isinstance(root, list):
+        for i, v in enumerate(root):
+            res = find_path(v, target, path + [str(i)])
+            if res:
+                return res
+
+    return None
+
+def clean_path(path):
+    return ".".join([p for p in path if p != "parsed"])

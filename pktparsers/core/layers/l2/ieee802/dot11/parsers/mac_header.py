@@ -4,11 +4,11 @@ from core.layers.l2.ieee802.dot11.constants import *
 
 logger = getLogger(__name__)
 
-# Example 1:
-def summarizer(parsed: dict):
-
-# Example 1:
-def summarizer
+def summarizer(parsed: dict, **kwargs):
+    result = "Summary result"
+    ctx = ParseContext.current()
+    insert_item(ctx.summary, KEY_MAC_HEADER, result)
+    pass
 
 def parser(**kwargs) -> dict:
     logger.debug("MAC Header parse")
@@ -82,7 +82,7 @@ def parser(**kwargs) -> dict:
     result = {}
 
     try:
-        result = unpack("<H", parser=_parser, summarizer=summarizer, summary_key=MAC_HEADER)
+        result = unpack("<H", parser=_parser, summarizer=summarizer)
     except Exception as e:
         logger.debug(f"MAC Header parser error: {e}")
 

@@ -7,6 +7,26 @@ _dissect_context = ContextVar("_dissect_context")
 @dataclass
 class DissectContext:
     summaries: dict[str, list] = field(default_factory=dict)
+    """
+    summaries structure e.g:
+    {
+        "l2": {
+            "dot11": {"frame": {}},
+            "dot3": {"frame": {}},
+        },
+        "l3": {
+            "ip": {"packet": {}},
+            "arp": {"packet": {}},
+        },
+        "l4": {
+            "tcp": {"segment": {}},
+            "udp: {"datagram": {}}
+        },
+        "l7": {
+            "http": {"data": {}},
+        },
+    }
+    """
     result: dict | None = None
 
     def __enter__(self):
@@ -35,7 +55,7 @@ class Dissector:
         self.traffic_ctx = TrafficContext(dlt=dlt) 
         self.parser = get_parser(dlt)
 
-    def dissect(self, packet: bytes, offset: int = 0, dlt: str | int = None):
+    def dissect(self, packet: bytes, offset: int = 0):
         with DissectContext() as dissect_ctx:
 
             parsed = self.parser(packet, offset)
@@ -51,40 +71,3 @@ class Dissector:
                 summaries=dissect_ctx.summaries,
                 traffic=traffic_summary
             )
-
-"""
-Seguir a lógica?:
-ParseContext:
-summary
-
-Funções de parse chamadas dentro de ParseContext, alimentar o summary de ParseContext.
-
-No fim do bloco código de ParseContext, é chamada a função de summarize relacionada específica do padrão ou protocolo do parse.
-Essa função irá consumir 
-
-
-Assim, irá evitar com que a função de summarize do parse do padrão ou protocolo específico, tenha que navegar pelo result de ParseContext, utilizando as chaves do próprio conteúdo parseado, que podem mudar, ou seja, a própria função de summarize nesse caso, iria depender do conhecimento das chaves de dicionário do conteúdo parseado gerados por outras funções, eu sinto que isso pode ser fragil a longo prazo, pois por exemplo:
-parse mac header define no seu resultado parseado:
-      return {
-            "fc": {
-                "protocol_version": protocol_version,
-                "type": f_type,
-                "type_name": type_name,
-                "subtype": f_subtype,
-                "subtype_name": subtype_name,
-                "tods": to_ds,
-                "fromds": from_ds,
-                "protected": protected,
-            },
-            "duration_id": duration,
-            "ra": ra, "ta": ta, "sa": sa, "da": da, "bssid": bssid,
-            "sequence_number": seq,
-            "qos_control": qos
-        }
-
-Se eu mudo uma chaves nesse resultado, vou ter que atualizar o analisador de summary que se baseia no result parsed do frame de ParseContext.
-
-
-Mas isso cria um suposto problema que não sei bem como resolver, w
-
-"""

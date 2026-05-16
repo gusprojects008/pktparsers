@@ -26,16 +26,9 @@ Esta seção contém percepções coletadas durante o desenvolvimento; nenhuma e
 ## Explicações e esclarecimentos
 * Todo esse projeto tenta replicar ao máximo o modelo OSI, para deixar o mais didático possível.
 * Estou tentando ao máximo remover hardcodes, mas em protocolos de padrões de comunicação, muitas vezes não dá para fugir de formatos e números arbitrários.
-* A estrutura de summary vai ser de acordo com a PDU específica da camada ou padrão específico.
 * namespaces do próprio programa: parsed, _metadata_, raw, summary, counter.
 
-* Cada padrão de comunicação ou camada de rede, terá Uma função de parse principal, ela irá abrir uma ParseContext interno, mas será necessário que de alguma forma, ela consiga acessar a DLT de Dissector, para que o parser de padrão de comunicação ou camada de rede específica, não precise receber um argumento como "dlt=" para saber como parsear corretamente o pacote, exemplo: dot11 é diretório relacionado ao padrão de comunicação ieee80211, mas ele está relacionado à DLT_IEEE802_11 e DLT_IEEE802_11_RADIO, eu quero que dot11/ tenha apenas um módulo de parse que utiliza os parsers do padrão dot11, mas que faz o parse de radiotap header no começo do frame, dessa forma, dot11/ terá:
-parse.py e radio/
-radio/ terá:
-parse.py chama parse de parse.py de dot11, mas antes chama parse de radiotap/:
-radiotap/parse.py
-
-* analyses/ contém módulos e estruturas usadas para gerar estruturas de dados que descrevem semanticamente os resultados de parsers.
+* diretórios como: traffic/ analyses/ e summary/, contém módulos e estruturas usadas para gerar estruturas de dados que descrevem semanticamente os resultados de parsers. Cada DLT conterá um diretório de summary/.
 
 * O módulo parse.py contém a função de parse principal de uma DLT ou camada específica de rede específica, exemplo: dot11/ é diretório que representa o padrão ieee80211. Dentro dele contém "parse.py", pois ele está relacionado à DLT_IEEE802_11. Mas existe a DLT_IEEE802_11_RADIO, por isso, existe: "dot11/radio/", esse diretório "radio/" está relacionado à DLT_IEEE802_11_RADIO, dentro dele existe: "parse.py" pois é o parse de uma outra DLT. Outro exemplo: "l3/" representa a camada 3 do modelo OSI, nessa camada existe os protocolos arp, ip etc..., então dentro de "l3/" tem parse.py, que contém a função de parse principal relacionada à todos os protocolos da camada 3. A função ficaria parse(protocol: str | int) protocol pode ser "ip", ethertype ou dsap. Ou seja, quando me refiro a parse principal, me refiro a um parse relacionado a uma DLT ou camada de rede específica, esse parse irá abrir um ParseContext, ter uma função de summarize o summary de ParseContext, e ter uma função que irá analisar todos os summary(s) acumulados na variável "summaries" de DissectContext, esse summary(s) os próprios summarys criados em cada função de parse principal, ou seja, baseada na DLT ou camada de rede específica.
 
@@ -51,16 +44,8 @@ radiotap/parse.py
 
 * Criar módulos através de critérios como: common/ contém diretórios e módulos com constantes, funções e estruturas globais, que são usadas durante todo o projeto.
 
-* /layers/analyes/ porque irá conter as funções, classes, constantes e estruturas relacionadas à analise do resultado dos parsers parsers de protocolos dentro das camadas, para assim, alimentar a estruturas de analise comuns/globais do projeto, em /common/analyses/.
-
 # Decisões de arquitetura pendentes:
-* E se ao invés de usar dataclasses, usar algo como:
-def Dot11Device(
-Ou talvez seja melhor extender/melhorar get_nested para suportar acesso à dataclasses.
-* Exemplo
 
 ## Referências
-* Exemplo
 
 ## Desabafos durante todo o projeto kkkkkkk
-* Tive que decidir se o módulo irá fazer a dissecação e criação do resultado de parse, baseando-se no modelo OSI + PDUs, ou por encapsulamento de protocolo. Por OSI + PDU, a consulta/filtro fica muito confuso, mas por protocolo fica mais legivel.

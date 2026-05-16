@@ -10,8 +10,8 @@ def parse(frame: bytes, offset: int = 0) -> dict:
     logger.debug("Frame parse")
     try:
         with ParseContext(frame, offset) as ctx:
-            ctx.set("rt_hdr", radiotap_header.parser())
-            rt_hdr = ctx.get("rt_hdr")
+            insert_item(ctx.result, "rt_hdr", radiotap_header.parser())
+            rt_hdr = ctx.result.get("rt_hdr")
             if rt_hdr is None or {}:
                 logger.debug("Unexpected radiotap header error")
                 return ctx.result
@@ -20,7 +20,11 @@ def parse(frame: bytes, offset: int = 0) -> dict:
             if bad_fcs:
                 logger.debug("Dropping frame: bad_fcs indicated by radiotap")
                 return ctx.result
-            ctx.set(parse_dot11(ctx.frame, ctx.offset))
+            ctx.result.update(parse_dot11(ctx.frame, ctx.offset))
+            insert_item(ctx.result, "summary", ctx.summary)
+            dissection_ctx = DissectContext.current()
+            if dissection_ctx:
+                dissection_ctx.add_summary("dot11", ctx.summary)
     except Exception as e:
         logger.debug(f"Frames parser error: {e}")
     return ctx.result
