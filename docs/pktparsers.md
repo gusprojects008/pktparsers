@@ -44,6 +44,17 @@ Esta seção contém percepções coletadas durante o desenvolvimento; nenhuma e
 
 * Criar módulos através de critérios como: common/ contém diretórios e módulos com constantes, funções e estruturas globais, que são usadas durante todo o projeto.
 
+* Seguir o padrão exemplo: 
+dot11/:
+    parse.py
+    dlt/:
+        ieee802_11/parse.py
+        ieee802_11_radio/parse.py
+Isso cria uma separação entre o parse de um protocolo/padrão, de um parse de uma DLTs específica, que consome o parse do padrão/protocolo específico. 
+Então parse de protocolo como dot11 não cria ParseContext? então devo deixar apenas parse.py de DLTs criarem ParseContext?
+Isso permite reutilizar parse de dot11 separadamente.
+
+
 # Decisões de arquitetura pendentes:
 
 ## Referências
