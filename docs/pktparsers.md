@@ -1,62 +1,56 @@
 ## Ideias e implementações futuras 
 Esta seção contém percepções coletadas durante o desenvolvimento; nenhuma está garantida para ser implementada. Elas exigem revisão e pesquisa adicional.
 
-* Exemplo
+* Provavelmente irei ter que um classe Context maior para todo o módulo, ela conterá uma lista ou dict com todos os contextos abertos a partir dela, era manterá do pktparsers config.
+* Opção para os usuários enviarem pacotes devidamente criptografados para que os APs os aceitem.
+* Permitir que os usuários forneçam um arquivo JSON com as informações necessárias para descriptografar frames protegidos.
+* Adicionar suporte a parse de: FTP, SSH,
+* Desenvolver uma TUI para sniffing (semelhante ao termshark).
+* Desenvolver uma TUI para edição de frames de forma semelhante ao mitmproxy.
+* Implementar um módulo para geração/edição de frames/pacotes.
+* implementar editor de conteúdo de pacotes e frames assim como o mitmproxy, usar "select-editor" abrir o editor com o conteúdo do frame, quando o usuário salvar alterar o conteúdo e permitir ele realizar o replay.
+* Se inspirar no mitmproxy para permitir o usuário desenvolver seus próprio plugins/scripts para manipular a captura e comportamento da interface e trafégo.
+* Permitir o usuário cerregar arquivo com padrões de filtro de frames.
+* Para geração de gráficos e análises com base nos resultados de Dissect. 
+* Documentação para expressões de filtro; recomendar que os usuários capturem frames com `sniff` e analisem a saída JSON.
+* Utilizar GitHub Docs.
 
 ## O que está faltando? para corrigir / adicionar
+* Substituir todos os hardcodes de tamanhos, struct formats e nomes de chaves de resultado de parsers, por constantes. Atualizar todos os formats de struct, para utilizarem valores de constantes definidas, dessa forma irá eliminar boa parte dos hardcodes, irá melhorar a legibilidade, e significativamente a escalabilidade.
+* A estrutura de dissect config será: {"global": {"crypt": {}, "parse": {}, "analysis": {}}, nome_do_protocolo_ou_dlt: {"crypt": {}, "parse": {], "analysis": {}} }}
+* Ajustar funções para irem de acordo com dissect config.
+* Testar criptografia de payloads funciona.
+* Testar descriptografia de payloads funciona.
 * Revisar os resultados dos parsers, comparar com o resultado do wireshark, e corrigir os parsers se necessário.
-* Melhorar nomes de variáveis e strings
-* Atualizar todos os formats de struct, para utilizarem valores de constantes definidas, dessa forma irá eliminar boa parte dos hardcodes, irá melhorar a legibilidade, e significativamente a escalabilidade.
-* Adicionar verificações adicionais de detecção de erros.
-* Adicionar uma seção de todos os artigos e manuais que explicam e definem os padrões dos frames, incluindo seus campos valores etc...
-* Melhorar filtro, permitir com que o usuário possa passar diretamente o nome de um tipo de frame, e assim obter o filtro que corresponde a ele.
-* Substituir todos os hardcodes de tamanhos, struct formats e nomes de chaves de resultado de parsers, por constantes.
+* Analisar módelo de desenvolvimento de dissector/parser de wireshark, e ver como ele compara ao meu, e ver no que posso melhorar.
+* adicionar funções/cache de filtros, exemplo: permitir o usuário filtrar por frame ou device (AP WPA2.
 
-## Local para anotar as melhorias e correções durante o projeto (pode ser utilizado no release)
+* pktparsers irá fornecer manter uma forte separação de responsabilidades. 
+Dissect lida apenas com packet, offset e DissectConfig, DissectConfig irá ter apenas variáveis e dados relacionados à parse, analise de parse e preferencias de protocolo, como o que e o que não parsear ou analisar, etc...
+Por isso, ele fornece módulos auxiliares relacionado ao projeto, que podem ser utilizados por outros programas e módulos, como:
+io.py: que fornece funções de leitura ou escrita em arquivos, de acordo com os formatos suportado:
+pcap
+pcapng
+erf
+json
+jsonl
+
+* Como vai funciona DissectConfig:
+DissectConfig é passado para a classe Dissec ou é gerado automaticamente por ela.
+Essa config é passada para TrafficContext e ParseContext.
+Provavelmente as funções de parse e subparse irão acessar o objeto ParseContext.config para verificar se alguma configuração/preferencia de protocolo específica está configurada. Algo como:
+Possível estrutura de DissectConfig:
+
+```python
+if get_nested(f"{IEE802_11_RADIO}.assume_fcs", ctx.config):
+   detect_fcs()
+```
+
+## Melhorias e correções durante o projeto (pode ser utilizado no release)
 * Exemplo
-
-## Padrões do projeto que é aconselhavel/recomendável serem seguidos
-* Utilizar a função "fail" apenas quando for realmente um erro que pode afetar todo restante do parse.
-* Para nomes de chaves de valores em dicionários como "parsed", é recomendado que sigam o mesmo padrão de outros analisadores/sniffers de rede como scapy e wireshark, abreviados sempre que possível para facilitar o filtro do usuário, a documentação de filtro irá ser criada justamente para evitar confusões.
-* Em funções utilitárias que utilizam um parser diretamente, utilizar get_nested sempre que precisar obter valores em parsed.
-* Sempre montar dict ou fazer operações com valores, em memória, armazenando em variáveis antes de seres passada para o dict final, ou seja, não realizar lógica inline no dict. Isso se aplica principalmente para parsers internos usados como argumento de callback para a função unpack.
-* Seguir padrão da função unpack, ou seja, sempre que precisar interpretar um valor desempacotado por struct.unpack ou struct.unpack_from passar o parser interno que irá receber os valores binários desempacotados, e irá retornar o dict com resultado interpretador por ele.
-* Não realizar conversões ou transformações hexadecimais nos resultados de parsed, só _add_metadata faz isso. O encoder json em finish_capture já faz esse trabalho, e filter_engine detecta se o valor é bytes, se for, faz apenas uma conversão local para ser utilizada em operações de comparação. Com exceção de conversão bytes_for_mac ou bytes_for_oui.
-
-## Explicações e esclarecimentos
-* Todo esse projeto tenta replicar ao máximo o modelo OSI, para deixar o mais didático possível.
-* Estou tentando ao máximo remover hardcodes, mas em protocolos de padrões de comunicação, muitas vezes não dá para fugir de formatos e números arbitrários.
-* namespaces do próprio programa: parsed, _metadata_, raw, summary, counter.
-
-* diretórios como: traffic/ analyses/ e summary/, contém módulos e estruturas usadas para gerar estruturas de dados que descrevem semanticamente os resultados de parsers. Cada DLT conterá um diretório de summary/.
-
-* O módulo parse.py contém a função de parse principal de uma DLT ou camada específica de rede específica, exemplo: dot11/ é diretório que representa o padrão ieee80211. Dentro dele contém "parse.py", pois ele está relacionado à DLT_IEEE802_11. Mas existe a DLT_IEEE802_11_RADIO, por isso, existe: "dot11/radio/", esse diretório "radio/" está relacionado à DLT_IEEE802_11_RADIO, dentro dele existe: "parse.py" pois é o parse de uma outra DLT. Outro exemplo: "l3/" representa a camada 3 do modelo OSI, nessa camada existe os protocolos arp, ip etc..., então dentro de "l3/" tem parse.py, que contém a função de parse principal relacionada à todos os protocolos da camada 3. A função ficaria parse(protocol: str | int) protocol pode ser "ip", ethertype ou dsap. Ou seja, quando me refiro a parse principal, me refiro a um parse relacionado a uma DLT ou camada de rede específica, esse parse irá abrir um ParseContext, ter uma função de summarize o summary de ParseContext, e ter uma função que irá analisar todos os summary(s) acumulados na variável "summaries" de DissectContext, esse summary(s) os próprios summarys criados em cada função de parse principal, ou seja, baseada na DLT ou camada de rede específica.
-
-* Poderia extender unpack para suportar callback "descriptor", que recebe os próprios values desempacotados, para interpretar e retornarum dict de description, ou uma estrutura de summary. Mas acho que não é necessário, pois "summary" de ParseContext já pode manter esses/descriptions/resumos.
-
-* subparsers alimentam "ctx.summary" de "ParseContext" dinamicamente. A razão prática mais importante: cada subparser já tem os dados em mãos no momento certo, sem precisar renavegar o parsed depois.
-
-* Dict para summaries internos, não dataclass. Summaries de subparsers são estruturas abertas que variam. Dataclass aqui seria rigidez desnecessária. Mas esses dicts de summary irão manter o mesmo nome de chaves do result do subparser específico naquele momento, para mnater compatibilidade entre filtros.
-
-* relationships pertence ao protocolo, não ao DeviceEntry global.
-
-* Se por exemplo, um frame tiver dois mac headers, não será possível adicionar o outro mac header no summary de parse context, até mesmo porque a função de parse de dot11 quebraria antes disso.
-
-* Criar módulos através de critérios como: common/ contém diretórios e módulos com constantes, funções e estruturas globais, que são usadas durante todo o projeto.
-
-* Seguir o padrão exemplo: 
-dot11/:
-    parse.py
-    dlt/:
-        ieee802_11/parse.py
-        ieee802_11_radio/parse.py
-Isso cria uma separação entre o parse de um protocolo/padrão, de um parse de uma DLTs específica, que consome o parse do padrão/protocolo específico. 
-Então parse de protocolo como dot11 não cria ParseContext? então devo deixar apenas parse.py de DLTs criarem ParseContext?
-Isso permite reutilizar parse de dot11 separadamente.
-
-
-# Decisões de arquitetura pendentes:
 
 ## Referências
 
 ## Desabafos durante todo o projeto kkkkkkk
+* Todo esse projeto tenta replicar ao máximo o modelo OSI, para deixar o mais didático possível.
+* Estou tentando ao máximo remover hardcodes, mas em protocolos de padrões de comunicação, muitas vezes não dá para fugir de formatos e números arbitrários.

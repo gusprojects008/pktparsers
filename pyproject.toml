@@ -1,12 +1,49 @@
 [project]
 name = "pktparsers"
 version = "1.0.0"
-description = "Parsers for communication standards protocols"
-authors = [{name = "Gustavo Araújo"}]
+description = "Extensible framework for dissecting and creating protocol packets and parsers."
+readme = "README.md"
+requires-python = ">=3.12"
 
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+authors = [
+    { name = "Gustavo Araújo" }
+]
 
-[tool.setuptools]
-packages = ["pktparsers"]
+dependencies = [
+    "dpkt==1.9.8",
+    "textual==6.2.1",
+    "rich==14.3.3",
+    "argcomplete",
+    "cli-core @ git+https://github.com/gusprojects008/cli-core.git@v1.0.0"
+]
+
+keywords = [
+    "engine",
+    "framework",
+    "parsers",
+    "dissection",
+    "dissectors",
+    "network",
+    "sniffer",
+    "packets",
+    "ethernet",
+    "wifi",
+    "bluetooth",
+    "security"
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Topic :: System :: Networking",
+    "Topic :: Security"
+]
+
+[project.scripts]
+pktparsers = "pktparsers.cli.main:main"
+pktparsers-tui = "pktparsers.tui.main:main"
+
+[tool.setuptools.packages.find]
+include = ["pktparsers*"]
