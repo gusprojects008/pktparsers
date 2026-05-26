@@ -1,0 +1,3 @@
+DURATION_FMT = "<H"
+FS_FMT = "<H"
+QOS_FMT = "<H"
