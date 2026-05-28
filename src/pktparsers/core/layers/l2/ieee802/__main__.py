@@ -7,7 +7,6 @@ IEEE802_11_FRAMES = {
 
 
 def main():
-    from core.layers.l2.ieee802.dot11.parse import parse
     from core.common.filter_engine import apply_filters
 
     parsed_frame = Frame.frames_parser(eapol_msg1, mac_vendor_resolver)

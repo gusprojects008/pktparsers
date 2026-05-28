@@ -1,7 +1,7 @@
 # l3/parsers/parsers.py — versão correta
 import socket
 from logging import getLogger
-from pktparsers.common.parse.utils import unpack, ParseContext
+from pktparsers.common.parse.utils import unpack
 
 logger = getLogger(__name__)
 

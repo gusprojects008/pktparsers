@@ -2,21 +2,20 @@
 
 import time
 from contextvars import ContextVar
-from dataclasses import dataclass, field
-from typing import Optional
+from .defintions import ANNOTATIONS, DEVICES, FIRST_SEEN, LAST_SEEN
 
 def make_device_entry() -> dict:
     return {
-        "first_seen": time.time(),
-        "last_seen":  time.time(),
-        "protocols_data": {},
-        "annotations": {},
+        FIRST_SEEN: time.time(),
+        LAST_SEEN:  time.time(),
+        PROTOCOLS_DATA: {},
+        ANNOTATIONS: {},
     }
 
 def make_traffic_summary() -> dict:
     return {
-        "devices": {},
-        "annotations": {},
+        DEVICES: {},
+        ANNOTATIONS: {},
     }
 
 

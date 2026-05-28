@@ -26,7 +26,6 @@ from pktparsers.core.crypt import (
     prf_sha1,
     aes_ccm_decrypt,
     rc4,
-    michael_mic,
     crc32_bytes,
 )
 

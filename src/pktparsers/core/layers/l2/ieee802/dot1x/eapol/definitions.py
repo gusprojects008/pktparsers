@@ -1,7 +1,3 @@
-from pktparsers.common.parse.definitions import (
-    VALUE,
-    DESCRIPTION,
-)
 
 DOT1X_VERSION = "dot1x_version"
 DOT1X_TYPE = "dot1x_type"

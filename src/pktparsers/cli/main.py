@@ -4,7 +4,6 @@
 import argparse
 import argcomplete
 from pathlib import Path
-from cli_core.log import setup_logging
 from core.bootstrap import init
 
 config = {

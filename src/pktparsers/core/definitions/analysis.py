@@ -1,0 +1,10 @@
+CRYPT  = "crypt"
+PARSE  = "parse"
+GLOBAL = "global"
+ANALYSIS = "analysis"
+PROTOCOL = "protocol"
+
+L2 = "l2"
+L3 = "l3"
+L4 = "l4"
+L7 = "l7"

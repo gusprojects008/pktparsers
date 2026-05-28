@@ -1,6 +1,6 @@
 # pktparsers/core/layers/l3/ip/definitions.py
 
-from pktparsers.common.parse.definitions import (IPV4_FMT, PAYLOAD, FLAGS, VERSION)
+from pktparsers.common.parse.definitions import (IPV4_FMT)
 
 IHL = "ihl"
 TOS = "tos"

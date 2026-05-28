@@ -1,7 +1,7 @@
 # l2/ieee802/llc/parser.py
 
 from logging import getLogger
-from pktparsers.common.parse.utils import (unpack, run_dispatch, bytes_for_oui) 
+from pktparsers.common.parse.utils import (unpack, bytes_for_oui) 
 from pktparsers.core.registry import get_protocol
 from pktparsers.core.layers.l2 import (OUI, OUI_FMT)
 from pktparsers.core.layers.l2.ieee802.definitions import ETHERTYPE_DISPATCH
@@ -10,7 +10,7 @@ from pktparsers.core.layers.l2.ieee802.dot2.llc.definitions import *
 logger = getLogger(__name__)
 
 def parser(**kwargs) -> dict:
-    logger.debug(f"LLC parse")
+    logger.debug("LLC parse")
 
     def _parser(value: tuple, **kwargs) -> dict:
         dsap, ssap, ctrl, oui, pid = value

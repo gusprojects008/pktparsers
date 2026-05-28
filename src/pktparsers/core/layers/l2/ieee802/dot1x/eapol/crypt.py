@@ -18,7 +18,6 @@
 
 import hmac
 import hashlib
-import struct
 import logging
 from typing import Optional
 

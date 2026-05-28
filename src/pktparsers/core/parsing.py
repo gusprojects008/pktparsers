@@ -3,10 +3,8 @@ import re
 import binascii
 import struct
 from logging import getLogger
-from dataclasses import dataclass
 from functools import lru_cache
 from contextvars import ContextVar
-from contextlib import contextmanager
 from pktparsers.core.definitions import *
 
 logger = getLogger(__name__)
@@ -200,7 +198,7 @@ def unpack(fmt: str = None, parser: callable = None, summarizer: str | callable 
     return result
 
 def run_dispatch(dispatch_table: dict, dispatch_id, fallback: callable = None, **kwargs):
-    logger.debug(f"run dispatch")
+    logger.debug("run dispatch")
 
     entry = dispatch_table.get(dispatch_id)
 

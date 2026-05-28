@@ -1,11 +1,8 @@
 # dot3/parse.py
 from logging import getLogger
-from pktparsers.common.parse.utils import unpack, read_mac
+from pktparsers.common.parse.utils import unpack
 from pktparsers.common.parse.filter_engine import get_nested
 from pktparsers.core.layers.l2.ieee802.dot3.definitions import *
-from pktparsers.core.layers.l3.ip.parse import parse as ip_parse
-from pktparsers.core.layers.l3.arp.parse import parse as arp_parse
-from pktparsers.core.layers.l2.ieee802.dot1x.parsers.eapol import parser as eapol_parse
 from pktparsers.core.layers.l2.ieee802.dot2.parse import PAYLOAD_DISPATCH
 
 logger = getLogger(__name__)
