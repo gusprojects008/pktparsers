@@ -2,10 +2,13 @@ import json
 import re
 import binascii
 import struct
+import random
 from logging import getLogger
 from functools import lru_cache
 from contextvars import ContextVar
-from pktparsers.core.definitions import *
+from pktparsers.core.definitions.parsing import (FMT, TOKENS, SIZE, SIZES, RAW, PARSED, VALUE, METADATA, START, END, EUI48_FMT, OUI_FMT)
+from pktparsers.core.definitions.result import (ADDR, FAIL, LENGTH, VENDOR, OUI, SUMMARY)
+from pktparsers.core import registry
 
 logger = getLogger(__name__)
 
@@ -40,8 +43,11 @@ class MacVendorResolver:
 
 mac_vendor_resolver = MacVendorResolver()
 
-bytes_for_mac = lambda mac : mac_vendor_resolver.mac_resolver(mac)
-bytes_for_oui = lambda oui : mac_vendor_resolver.oui_resolver(oui)
+def bytes_for_mac(mac): 
+    return mac_vendor_resolver.mac_resolver(mac)
+
+def bytes_for_oui(oui):
+    return mac_vendor_resolver.oui_resolver(oui)
 
 def read_mac() -> dict:
     return unpack(EUI48_FMT, parser=bytes_for_mac)
@@ -53,7 +59,8 @@ def random_mac():
     mac = [random.randint(0x00, 0xFF) for _ in range(6)]
     return ':'.join(f"{hex_byte:02x}" for hex_byte in mac)
 
-mac_for_bytes = lambda mac : bytes(int(hex_byte, 16) for hex_byte in mac.split(":"))
+def mac_for_bytes(mac):
+    return bytes(int(hex_byte, 16) for hex_byte in mac.split(":"))
 
 def insert_item(container: dict, key: str | int, val):
     if key not in container:
@@ -63,6 +70,9 @@ def insert_item(container: dict, key: str | int, val):
         container[key] = {"1": container[key]}
     idx = str(len(container[key]) + 1)
     container[key][idx] = val
+
+def make_addresses(sa: str = None, da: str = None, ta: str = None, ra: str = None):
+    return {SA: sa, DA: da, TA: ta, RA: ra}
 
 """
 Context manager for parsing.
@@ -78,11 +88,18 @@ class ParseContext:
         - result: accumulated parse result dict
     """
     
-    def __init__(self, buffer: bytes, start_offset: int = 0):
+    def __init__(self, buffer: bytes, start_offset: int = 0, dissector_id: str | int = None): # dissector_id could be, for example: ieee802_11, DLT_IEEE802_11 or 127
         self.buffer = buffer
         self.offset = start_offset
         self.result = {}
+        self.dissector_id = dissector_id 
         self._token = None
+
+    def get_addresses(self) -> dict:
+        dissector_entry = registry.get_dissector(self.dissector_id).
+        if dissector_entry and dissector_entry.address_extractor:
+            return dissector_entry.address_extractor(self.result)
+        return make_addresses()
 
     def __enter__(self):
         self._token = _parse_context.set(self)
@@ -327,7 +344,8 @@ def raw_packet_extractor(key=RAW):
                         yield (cleaned, bytes.fromhex(cleaned))
     return extractor
 
-wireshark_format = lambda packet_bytes : ":".join(f"{byte:02x}" for byte in packet_bytes)
+def wireshark_format(packet_bytes):
+    return ":".join(f"{byte:02x}" for byte in packet_bytes)
 
 def freq_converter(freq_unit: tuple, to_unit: str):
     freq, unit = freq_unit
@@ -396,3 +414,76 @@ def clean_path(path):
 
 def generate_parse_config():
     pass
+
+# pktparsers/core/parsing.py  — adicionar
+
+def build_from_parsed(parsed: dict) -> bytes:
+    """
+    Reconstrói bytes brutos a partir de um dict parsed editado.
+    
+    Para cada nó com _metadata_:
+        - Usa tokens e sizes para saber o struct format de cada campo
+        - Se o value atual for maior que o fmt original, expande o fmt
+        - Se for menor, aplica padding até o tamanho original
+    
+    Percorre a árvore em DFS na mesma ordem em que foi construída
+    (ordem de inserção dict é garantida em Python 3.7+).
+    """
+    result = bytearray()
+    _collect_bytes(parsed, result)
+    return bytes(result)
+
+def _collect_bytes(node: dict, out: bytearray) -> None:
+    if not isinstance(node, dict):
+        return
+
+    meta = node.get(METADATA)
+    if meta and VALUE in node:
+        _pack_field(meta, node[VALUE], out)
+        return  # nó folha — não desce para PARSED (já foi compactado no VALUE)
+
+    # Nó intermediário — desce para PARSED
+    inner = node.get(PARSED)
+    if isinstance(inner, dict):
+        for v in inner.values():
+            _collect_bytes(v, out)
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            if k not in (METADATA, VALUE, PARSED, SUMMARY):
+                _collect_bytes(v, out)
+
+def _pack_field(meta: dict, value, out: bytearray) -> None:
+    tokens = meta.get(TOKENS, {})
+    sizes  = meta.get(SIZES,  {})
+
+    if not tokens:
+        # Sem tokens — raw bytes direto
+        if isinstance(value, str):
+            out.extend(bytes.fromhex(value))
+        elif isinstance(value, (bytes, bytearray)):
+            out.extend(value)
+        return
+
+    values = value if isinstance(value, dict) else {0: value}
+
+    for idx, token in tokens.items():
+        v   = values.get(idx, 0)
+        sz  = sizes.get(idx, struct.calcsize(token))
+
+        # Normaliza tipo
+        if isinstance(v, str):
+            try:
+                v = bytes.fromhex(v)
+            except ValueError:
+                v = v.encode()
+
+        if isinstance(v, (bytes, bytearray)):
+            actual_sz = len(v)
+            if actual_sz > sz:
+                # value cresceu — expande fmt
+                out.extend(v)
+            else:
+                # padding à direita
+                out.extend(v + b"\x00" * (sz - actual_sz))
+        else:
+            out.extend(struct.pack(token.replace("<", "<").replace(">", ">"), v))

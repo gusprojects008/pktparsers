@@ -8,18 +8,17 @@ from pathlib import Path
 from logging import getLogger
 from cli_core.files import iter_from_json
 from cli_core.log import setup_logging
-from pktparsers.dissector import Dissector, DissectConfig
-from pktparsers.common.parse.filter_engine import apply_filters, get_nested
-from pktparsers.common.parse.utils import raw_packet_extractor
-from pktparsers.common.io import (
+from pktparsers import (
+    Dissector, 
+    apply_filters, 
+    get_nested, 
+    raw_packet_extractor,
     read,
     write,
     merge_packets,
     read_filters,
     write_filters,
     PacketWriter,
-    supported_formats,
-    _detect_format,
 )
 
 logger = getLogger(__name__)

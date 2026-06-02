@@ -8,9 +8,8 @@
 
 * **Modular**: independent and reusable parsers
 * **Semantic**: results describe the protocol meaning, not raw bytes
-* **DLT-oriented**: parsing initiated via Data Link Type registration
+* **Dissect DLT-oriented**: dissection initiated via Data Link Type registration
 * **Context**: `ContextVar` for thread-safe state
-* **Separation**: DLT parsers modify `ParseContext.result`; protocol parsers are read-only
 
 ### Responsibilities
 
@@ -31,7 +30,7 @@
 | **DissectConfig** | Parsing configurations, credentials, and analysis |
 | **TrafficContext** | Tracks devices and statistics between packets |
 | **Dissector** | Orchestrator: parsing + traffic analysis |
-| **Filter Engine** | Expression filters (`dot11.mac_hdr.sa.addr == "aa:bb:cc:dd:ee:ff"`) |
+| **Filter Engine** | Expression filters (`ieee802_11.mac_hdr.sa.addr == "aa:bb:cc:dd:ee:ff"`) |
 
 ### Quick Structures
 
@@ -50,17 +49,6 @@ traffic_ctx = TrafficContext.current()
 ```
 
 ---
-
-## 3. Layered Architecture
-
-```
-L7 ──► (Future: HTTP, DNS, TLS)
-L4 ──► (Future: TCP, UDP)
-L3 ──► IP + ARP
-L2 ──► IEEE 802: dot11 (WiFi) | dot3 (Ethernet) | dot2 (LLC) | dot1x (EAPOL)
-L1 ──► (no parsing)
-
-```
 
 ### Directory Organization
 
@@ -116,16 +104,6 @@ def parse(**kwargs) -> dict:
 ### ParseContext.result (hierarchical with metadata)
 
 ```python
-{
-    "rt_hdr": {
-        "_metadata_": {"start": 0, "end": 26, "raw": "00001b64..."},
-        "parsed": {"version": 0, "flags": {"bad_fcs": False}, "channel": 6}
-    },
-    "dot11": {
-        "mac_hdr": {"parsed": {"addr2": {"addr": "aa:bb:cc:dd:ee:ff"}}},
-        "body": {"llc": {"parsed": {"protocol_type": 0x888e, "name": "eapol"}}}
-    }
-}
 
 ```
 
@@ -136,37 +114,13 @@ def parse(**kwargs) -> dict:
     "devices": {
         "aa:bb:cc:dd:ee:ff": {
             "first_seen": 1234567890.123,
-            "protocols_data": {"dot11": {"role": "STA", "frames_sent": 542}},
+            "protocols_data": {"ieee802_11": {"role": "STA", "frames_sent": 542}},
             "annotations": {"security": "WPA2/PSK"}
         }
     }
 }
 
 ```
-
----
-
-## 6. Module Organization
-
-| File | Function |
-| --- | --- |
-| `parsing.py` | `unpack()`, `run_dispatch()`, `ParseContext`, `insert_item()` |
-| `filter_engine.py` | `get_nested()`, `apply_filters()` |
-| `definitions.py` | Constants: `PARSED`, `SUMMARY`, `VALUE`, `METADATA` |
-
-### Standard Protocol Structure
-
-```
-protocolo/
-├── parse.py              # main entry point
-├── definitions.py        # constants of dict keys and struct formats
-├── analyzers/summary.py  # summarizer() + analyzer()
-├── parsers/              # header.py, body.py, ies.py , creates a directory for a specific parser, in case it uses many hardcoded strings of dictionary keys or struct formats
-└── dlt/<nome_dlt>/       # DLT-specific override
-
-```
-
-**Rule:** Only DLT parsers modify `ParseContext.result`. Protocol parsers are read-only.
 
 ---
 
@@ -178,7 +132,7 @@ protocolo/
 | **Dispatch Table** | `run_dispatch(TABELA, id, fallback=unpack)` with name/description |
 | **Context Manager** | `ParseContext`, `TrafficContext`, `Dissector` with `ContextVar` |
 | **Lazy Singleton** | `MacVendorResolver` loads vendor DB once |
-| **Analyzer Callback** | DLT calls `summarizer()` → `analyzer()` → updates `TrafficContext` |
+| **Analyzer Callback** | DLT or protocol calls `summarizer()` → `analyzer()` → updates `TrafficContext` |
 
 ---
 
@@ -186,45 +140,13 @@ protocolo/
 
 | Decision | Reason |
 | --- | --- |
-| **Entry via DLT** | Single interface for libpcap, tcpdump, nl80211 |
 | **ParseContext as ContextVar** | Thread-safe; avoids passing context through every function |
 | **Separate DLT vs protocol parsers** | The same protocol (802.11) appears in different DLTs |
-| **Only DLT modifies ParseContext.result** | Consistency; protocol parsers are pure functions |
-| **Analyzers as functions (not dataclasses)** | Flexible; user can access any nested data |
+| **Data structures related to parsing and analysis use functions (not dataclasses)** | Flexible; user can access any nested data |
 | **`get_nested()` for field access** | Case-insensitive; automatically drills down into "parsed" |
 | **`insert_item()` helper** | Converts duplicate keys into numbered dicts |
 | **`fail()` only for critical errors** | Minor errors (unknown tags) do not abort the parsing |
 | **Dispatch by ethertype** | Natural evolution of SNAP/DSAP/PID |
-
----
-
-## 9. Implementation Status
-
-### Fully Implemented
-
-* Radiotap header (all fields: flags, channel, MCS, VHT, HE, timestamp)
-* MAC header 802.11, Management/Control/Data frames
-* 75+ Information Elements (SSID, Rates, RSN, HT, VHT, HE, WPS, WMM)
-* LLC → EAPOL (4-way handshake)
-* ARP, IPv4 header
-* Filter engine (comparisons, logic, `in`/`not in`, path)
-* ParseContext, TrafficContext, Dissector
-
-### Partial
-
-| Component | Dependency / Pending |
-| --- | --- |
-| Ethernet (dot3) | DLT_EN10MB parser, analyzers |
-| IP | fragment reassembly, options |
-| EAP/RADIUS | structure ready |
-| Bluetooth HCI | structure ready |
-
-### Future
-
-* L4/L7: TCP, UDP, HTTP, DNS, DHCP, TLS
-* Decryption: WPA2/WPA3 handshake, TLS key log
-* I/O: pcap/pcapng/JSON read/write
-* TUI, graphs, hashcat 22000
 
 ---
 
@@ -237,7 +159,7 @@ from pktparsers.dissector import Dissector
 
 with Dissector("DLT_IEEE802_11_RADIO") as dissector:
     resultado = dissector.dissect(frame_raw)
-    src_mac = resultado["parsed"]["dot11"]["mac_hdr"]["parsed"]["addr2"]["addr"]
+    src_mac = resultado["parsed"]["ieee802_11"]["mac_hdr"]["parsed"]["addr2"]["addr"]
     traffic = resultado["traffic"]
 ```
 
@@ -256,11 +178,11 @@ with ParseContext(frame_bytes, 0) as ctx:
 ### Filters
 
 ```python
-from pktparsers.corefilter_engine import apply_filters
+from pktparsers.core.filter_engine import apply_filters
 
 store_ok, display = apply_filters(
-    store_filter="dot11.mac_hdr.fc.type == 2 and dot11.body.llc.pid == 0x888e",
-    display_filter="dot11.mac_hdr.sa.addr, dot11.body.llc.payload.key_information.key_ack",
+    store_filter="ieee802_11.mac_hdr.fc.type == 2 and ieee802_11.body.llc.pid == 0x888e",
+    display_filter="ieee802_11.mac_hdr.sa.addr, ieee802_11.body.llc.payload.key_information.key_ack",
     parsed_frame=resultado["parsed"]
 )
 
@@ -269,36 +191,14 @@ store_ok, display = apply_filters(
 ### Traffic Analysis Across Packets
 
 ```python
-dissector = Dissector("DLT_IEEE802_11_RADIO")
-for pacote in pacotes:
-    dissector.dissect(pacote)
-
-aps = {
-    mac: dev for mac, dev in dissector.traffic_ctx.summary["devices"].items()
-    if dev.get("protocols_data", {}).get("dot11", {}).get("role") == "AP"
-}
-
-```
-
-### Custom Configuration
-
-```python
-config = DissectConfig(
-    parse={"ieee802_11_radio": {"assume_fcs": True}},
-    credentials={"ieee802_11": {"psk": "MinhaSenha123"}},
-    analysis={"traffic_summary": True}
-)
-dissector = Dissector("DLT_IEEE802_11_RADIO", config=config)
-
-```
-
-### JSON Writing
-
-```python
-from pktparsers.io import write_json, write_jsonl
-
-write_json("frame.json", resultado["parsed"])
-write_jsonl("frames.jsonl", [dissector.dissect(p)["parsed"] for p in pacotes])
+with Dissector("DLT_IEEE802_11_RADIO") as dissector:
+    for pacote in pacotes:
+        dissector.dissect(pacote)
+    aps = {
+        mac: dev for mac, dev in dissector.traffic_ctx.summary["devices"].items()
+        if dev.get("protocols_data", {}).get("ieee802_11", {}).get("role") == "AP"
+    }
+    print(aps)
 
 ```
 
@@ -311,55 +211,71 @@ write_jsonl("frames.jsonl", [dissector.dissect(p)["parsed"] for p in pacotes])
 | Comparison | `campo == valor`, `campo > 10` |
 | Logic | `cond1 and cond2`, `cond1 or cond2`, `not cond` |
 | Membership | `campo in (1,2,3)`, `campo not in ("a","b")` |
-| Path | `dot11.mac_hdr.sa.addr` (case-insensitive, enters "parsed") |
+| Path | `ieee802_11.mac_hdr.sa.addr` (case-insensitive, enters "parsed") |
 | Types | Auto-detection: int, float, bool, string (quoted) |
 
 ---
 
-## 12. Future Roadmap
+## Standards to be followed:
 
-| Phase | Focus |
-| --- | --- |
-| **1 (Current)** | Complete dot3, IP/ARP analyzers, testing, adjust imports |
-| **2** | Configurable FCS, protocol selection, decryption keys |
-| **3** | I/O pcap/pcapng/ERF, format conversion, packet merge |
-| **4** | TUI (list, tree, hexdump), graphs, CLI |
-| **5** | L4/L7 parsers, WPA2/WPA3 decryption, Bluetooth, hashcat 22000 |
+* Analyze the attached pktparsers-repomix.md file to obtain the full project context.
+* Do not hardcode key names in dicts; define them first in a specific definitions.py file for that protocol or DLT, if they do not already exist in a previous definitions.py file.
+* Follow the file structure I defined; only complete/develop the incomplete functions according to the idea I provided.
+* Use `get_nested()` for dictionary access
+* Never use inline logic inside dictionary literals (use variables)
+* Follow the `unpack(callback=_parser)` pattern
+* Use `insert_item()` for duplicate keys
+* Use `fail()` only for critical errors
+* Only protocol or dlt parsing functions modify ParseContext.result.
+* The "summarizer" function does not add the generated summary to the ParseContext.result variable because it is the main parser of the protocol or DLT that should decide whether the summary goes to ParseContext.result or not.
+* Only the "analyzer" function feeds TrafficContext.summary.
+* Avoid unnecessary coupling
+* Protocol parsing functions create their result dicts in ParseContext.result, using their own key related to their protocol to identify the result dict.
 
----
+## Explanation and Clarifications
+
+* Ethertypes are an evolution of snap, dsap, or pid. Therefore, I will use only ethertypes for protocol mapping.
+* bitwise e endians são detalhes de parsers, não precisam ser constantizados em definitions.
+* In parsers/, create a directory for each parse module if it uses its own key names and sizes.
+* The correct criterion for managing modules is understanding what the module is and which domain/subsystem it belongs to, not who uses/imports it.
 
 ## 13. Contribution Guidelines
 
 ### Adding a New Protocol
 
+#### analyzers/ directory structure
 ```bash
-protocolo/
-├── parse.py          # def parse(**kwargs): return unpack(fmt, parser=_parser)
-├── definitions.py    # constants
-├── analyzers/summary.py  # summarizer() + analyzer()
-└── parsers/          # sub-parsers as needed
+analyzers/
+   definitions.py
+   summary.py
+```
+Or it could be:
+```bash
+analyzers/
+   definitions.py
+   analyzer.py
+   summarizer.py
+```
 
+```bash
+protocol/
+   parse.py          # def parse(**kwargs): return unpack(fmt, parser=_parser)
+   definitions.py    # constants
+   analyzers/
+   parsers/          # sub-parsers as needed
+   crypt.py
 ```
 
 ### Adding a New DLT for an Existing Protocol
 
 ```bash
 protocolo/dlt/<nome>/
-├── parse.py          # with ParseContext, calls core protocol parser
-└── analyzers/        # DLT-specific summarizer/analyzer
-
+   parse.py
+   crypt.py # if necessary
+   definitions.py # if necessary
+   analyzers/
+   parsers/
 ```
-
-Then add it to `core/registry.py` → `DLT_DISPATCH`.
-
-### Code Style
-
-* Use `get_nested()` for dictionary access
-* Never use inline logic inside dictionary literals (use variables)
-* Follow the `unpack(callback=_parser)` pattern
-* Only DLT parsers modify `ParseContext.result`
-* Use `insert_item()` for duplicate keys
-* Use `fail()` only for critical errors
 
 ---
 
@@ -368,10 +284,3 @@ Then add it to `core/registry.py` → `DLT_DISPATCH`.
 **pktparsers** offers a clean and extensible architecture for network protocol parsing. The combination of DLT-based entry, thread-safe context management, and hierarchical parsing provides modularity and ease of use. The separation between protocol logic and DLT handling ensures reusability across different capture sources.
 
 The design prioritizes semantic clarity (what protocols mean) over raw binary details, allowing higher-level applications to perform intelligent traffic analysis, filtering, and visualization.
-
-## Explanation and Clarifications
-
-* Ethertypes are an evolution of snap, dsap, or pid. Therefore, I will use only ethertypes for protocol mapping.
-* bitwise e endians são detalhes de parsers, não precisam ser constantizados em definitions.
-* In parsers/, create a directory for each parse module if it uses its own key names and sizes.
-* The correct criterion for managing modules is understanding what the module is and which domain/subsystem it belongs to, not who uses/imports it.

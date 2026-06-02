@@ -2,7 +2,7 @@
 
 import time
 from contextvars import ContextVar
-from .defintions import ANNOTATIONS, DEVICES, FIRST_SEEN, LAST_SEEN
+from .defintions import ANNOTATIONS, DEVICES, FIRST_SEEN, LAST_SEEN, PROTOCOLS_DATA
 
 def make_device_entry() -> dict:
     return {
@@ -17,7 +17,6 @@ def make_traffic_summary() -> dict:
         DEVICES: {},
         ANNOTATIONS: {},
     }
-
 
 """
 Context manager traffic analysis.
