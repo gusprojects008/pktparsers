@@ -1,0 +1,5 @@
+FIRST_SEEN = "first_seen"
+LAST_SEEN = "last_seen"
+TRAFFIC_SUMMARY = "traffic_summary"
+ANNOTATIONS = "annotations"
+DEVICES = "devices"

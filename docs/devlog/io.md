@@ -1,4 +1,4 @@
-Provavelmente irei ter que criar um dataclass PktparsersConfig, ele irá manter o DissectConfig e OutputConfig.
+Provavelmente irei ter que criar um dataclass PktparsersConfig, ele irá manter um dissect config e OutputConfig.
 OutputConfig vai o ser dataclass que mantém as configurações de output padrão que o usuário definiu ou não.
 
 Preciso implementar:

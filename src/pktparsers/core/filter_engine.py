@@ -1,5 +1,6 @@
 import re
 import operator
+from pktparsers.core.definitions.parsing import (PARSED, VALUE, METADATA)
 
 operators = {
     ">=": operator.ge,
@@ -15,8 +16,8 @@ def get_nested(path: str, dct: dict, default=None):
     current = dct
     i = 0
 
-    if isinstance(current, dict) and "parsed" in current:
-        current = current["parsed"]
+    if isinstance(current, dict) and PARSED in current:
+        current = current[PARSED]
 
     while i < len(keys):
         if not isinstance(current, dict):
@@ -39,19 +40,19 @@ def get_nested(path: str, dct: dict, default=None):
         if not found:
             return default
 
-        if isinstance(current, dict) and "parsed" in current:
+        if isinstance(current, dict) and PARSED in current:
             next_key = keys[i + 1] if i + 1 < len(keys) else None
-            if next_key is None or str(next_key).lower() not in ("parsed", "value", "_metadata_"):
-                current = current["parsed"]
+            if next_key is None or str(next_key).lower() not in (PARSED, VALUE, METADATA):
+                current = current[PARSED]
 
         i += 1
 
     if isinstance(current, bytes):
         return current.hex()
 
-    if isinstance(current, dict) and "parsed" in current:
-        if all(k in ('parsed', 'value', '_metadata_') for k in current.keys()):
-            return current.get('parsed', default)
+    if isinstance(current, dict) and PARSED in current:
+        if all(k in (PARSED, VALUE, METADATA) for k in current.keys()):
+            return current.get(PARSED, default)
 
     return current if current is not None else default
 
@@ -66,8 +67,8 @@ def _search_in_numeric_dict(d: dict, remaining_keys: list[str]):
     results = []
     for entry in d.values():
         candidate = entry
-        if isinstance(entry, dict) and "parsed" in entry and "value" in entry:
-            candidate = entry["parsed"]
+        if isinstance(entry, dict) and PARSED in entry and VALUE in entry:
+            candidate = entry[PARSED]
 
         result = get_nested(".".join(remaining_keys), candidate)
         if result is not None:

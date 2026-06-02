@@ -77,6 +77,7 @@ __all__ = [
     "DltEntry",
     "get_dlt_parser",
     "get_protocol",
+    "raw_packet_extractor",
     # Filters
     "apply_filters",
     "get_nested",

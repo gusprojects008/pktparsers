@@ -1,0 +1,12 @@
+EUI48_FMT = "6s"
+EUI64_FMT = "8s"
+OUI_FMT = "3s"
+IPV4_FMT = "4s"
+IPV6_FMT = "16s"
+
+PARSED = "parsed"
+COUNTER = "counter"
+VALUE = "value"
+METADATA = "_metadata_"
+RAW = "raw"
+TOKENS = "tokens"

@@ -9,7 +9,7 @@ from logging import getLogger
 
 logger = getLogger(__name__)
 
-class AppContext:
+class Context:
     """
     Manages application directories and configuration.
     
@@ -21,7 +21,7 @@ class AppContext:
         log_file: path to main log file
     """
     
-    def __init__(self, config: dict = None, log_file: Path = None):
+    def __init__(self, config: dict = None, log_file: Path = None, app_name: str = "pktparsers"):
         self.config = config or {}
         
         # Determine real user (handle sudo)
@@ -30,15 +30,15 @@ class AppContext:
         self.home_dir = Path(pw.pw_dir)
         
         # Setup dirs
-        self.config_dir = self.home_dir / ".config" / "pktparsers"
+        self.config_dir = self.home_dir / ".config" / app_name
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.chmod(0o740)
         
-        self.cache_dir = self.home_dir / ".cache" / "pktparsers"
+        self.cache_dir = self.home_dir / ".cache" / app_name
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.chmod(0o740)
         
-        self.log_file = log_file or (self.cache_dir / "pktparsers.log")
+        self.log_file = log_file or (self.cache_dir / f"{app_name}.log")
         
         logger.debug(
             f"AppContext initialized — user={self.real_user}, "

@@ -1,0 +1,46 @@
+DATA = 0
+DATA_CF_ACK = 1
+DATA_CF_POLL = 2
+DATA_CF_ACK_CF_POLL = 3
+NULL = 4
+CF_ACK = 5
+CF_POLL = 6
+CF_ACK_CF_POLL = 7
+QOS_DATA = 8
+QOS_DATA_CF_ACK = 9
+QOS_DATA_CF_POLL = 10
+QOS_DATA_CF_ACK_CF_POLL = 11
+QOS_NULL = 12
+RESERVED = 13
+QOS_CF_POLL = 14
+QOS_CF_ACK_CF_POLL = 15
+
+NULL_DATA_SUBTYPES = [
+    NULL,
+    CF_ACK,
+    CF_POLL,
+    CF_ACK_CF_POLL,
+    QOS_NULL,
+    RESERVED,
+    QOS_CF_POLL,
+    QOS_CF_ACK_CF_POLL
+]
+
+SUBTYPES_NAMES = {
+    DATA: "Data",
+    DATA_CF_ACK: "Data+CF-Ack",
+    DATA_CF_POLL: "Data+CF-Poll",
+    DATA_CF_ACK_CF_POLL: "Data+CF-Ack+CF-Poll",
+    NULL: "Null",
+    CF_ACK: "CF-Ack",
+    CF_POLL: "CF-Poll",
+    CF_ACK_CF_POLL: "CF-Ack+CF-Poll",
+    QOS_DATA: "QoS Data",
+    QOS_DATA_CF_ACK: "QoS Data+CF-Ack",
+    QOS_DATA_CF_POLL: "QoS Data+CF-Poll",
+    QOS_DATA_CF_ACK_CF_POLL: "QoS Data+CF-Ack+CF-Poll",
+    QOS_NULL: "QoS Null",
+    RESERVED: "Reserved",
+    QOS_CF_POLL: "QoS CF-Poll",
+    QOS_CF_ACK_CF_POLL: "QoS CF-Ack+CF-Poll",
+}

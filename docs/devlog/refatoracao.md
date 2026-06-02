@@ -7,9 +7,11 @@ Com base no arquivo definitions.py atualize o parse.py com uso das constantes e 
 Defina novas constantes caso encontre strings hardcoded que se repetem e que são usadas como chaves em dicionários.
 Não é necessário constantizar valores para operações de bitmasking como 0x0001 ou 0x0002 .
 
+Veja o arquivo repomix que possui o contexto de alguns módulos globais de constantes.
+
 Siga esse padrão exemplo:
 eapol/definitions.py:
-from pktparsers.common.parse.definitions import (
+from pktparsers.core.definitions.parsing import (
     VALUE,
     DESCRIPTION,
 )
@@ -80,11 +82,11 @@ FMT = (
 
 
 eapol/parse.py:
-# core/layers/l2/ieee802/dot1x/eapol/parse.py
+# core/dissectors/ieee802/dot1x/eapol/parse.py
 
-from pktparsers.common.parse.definitions import (VALUE, DESCRIPTION)
+from pktparsers.core.parsing.definitions import (VALUE, DESCRIPTION)
 
-from pktparsers.core.layers.l2.ieee802.dot1x.eapol.definitions import *
+from pktparsers.core.dissectors.ieee802.dot1x.eapol.definitions import *
 
 logger = getLogger(__name__)
 
@@ -199,58 +201,89 @@ def parse(**kwargs) -> dict:
 
 
 
-Para contexto: pktparsers/common/parse/defintions.py:
-EUI48_FMT = "6s"
-EUI64_FMT = "8s"
-OUI_FMT = "3s"
-IPV4_FMT = "4s"
-IPV6_FMT = "16s"
-
-PARSED = "parsed"
-COUNTER = "counter"
-SUMMARY = "summary"
-VALUE = "value"
-METADATA = "_metadata_"
-RAW = "raw"
-TOKENS = "tokens"
-OUI = "oui"
-MAC = "mac"
-NAME = "name"
-DESCRIPTION = "description"
-PAYLOAD = "payload"
-VENDOR = "vendor"
-ADDRESS = "addr"
-SOURCE = "src"
-DESTINATION = "dst"
-FLAGS = "flags"
-VERSION = "version"
-
-PROTOCOL_DOT11 = "dot11"
-PROTOCOL_DOT3 = "dot3"
-PROTOCOL_DOT1X = "dot1x"
-PROTOCOL_ARP = "arp"
-PROTOCOL_IP = "ip"
-PROTOCOL_IPV4 = "ipv4"
-PROTOCOL_IPV6 = "ipv6"
-PROTOCOL_ICMP = "icmp"
-PROTOCOL_ICMPV6 = "icmpv6"
-PROTOCOL_TCP = "tcp"
-PROTOCOL_UDP = "udp"
-PROTOCOL_LLC = "llc"
-PROTOCOL_SNAP = "snap"
-PROTOCOL_EAPOL = "eapol"
-PROTOCOL_EAP = "eap"
-PROTOCOL_RADIUS = "radius"
-PROTOCOL_MESH_CTRL = "mesh_ctrl"
-PROTOCOL_TDLS = "tdls"
-PROTOCOL_WAPI = "wapi"
-PROTOCOL_FAST_BSS_TRANSITION = "fast_bss_transition"
-PROTOCOL_DLS = "dls"
-PROTOCOL_RAS = "robust_av_streaming"
-PROTOCOL_WMM = "wmm"
-PROTOCOL_QOS_NULL = "qos_null"
-
-
 
 Preciso aplicar esse padrão em:
-mmmm
+
+from logging import getLogger
+from pktparsers.core.parsing import (unpack, read_mac)
+from pkparsers.core.dissectors.ieee802.dot11.definitions import *
+
+logger = getLogger(__name__)
+
+def parse(**kwargs) -> dict:
+    logger.debug("MAC Header parse")
+
+    def _parser(fc_val: int, **k) -> dict:
+        protocol_version = fc_val & 0b11
+        f_type = (fc_val >> 2) & 0b11
+        f_subtype = (fc_val >> 4) & 0b1111
+        to_ds = (fc_val >> 8) & 1
+        from_ds = (fc_val >> 9) & 1
+        protected = bool(fc_val & 0x4000)
+        
+        type_name = FRAME_TYPES.get(f_type)
+        subtype_name = FRAME_SUBTYPES.get(f_type, {}).get(f_subtype)
+        is_qos = f_type == DATA and bool(f_subtype & 0b1000)
+
+        duration = unpack(DURATION_FMT)
+        
+        addr1 = read_mac()
+        
+        addr2 = addr3 = addr4 = seq = qos = None
+
+        if f_type == CTRL:
+            if f_subtype in (CTRL_BLOCK_ACK_REQUEST, CTRL_BLOCK_ACK, CTRL_PS_POLL, 
+                             CTRL_RTS, CTRL_CF_END, CTRL_CF_END_ACK):
+                addr2 = read_mac() 
+        else:
+            addr2 = read_mac() 
+            addr3 = read_mac() 
+            fs = unpack(FS_FMT, parser=lambda v, **k: v >> 4) # fragment number + sequence number
+
+            if to_ds and from_ds:
+                addr4 = read_mac() 
+
+        ra = addr1
+        ta = addr2 if addr2 else None
+        a3 = addr3 if addr3 else None
+        a4 = addr4 if addr4 else None
+
+        sa = da = bssid = None
+        if to_ds == 0 and from_ds == 0:
+            sa, da, bssid = ta, ra, a3
+        elif to_ds == 0 and from_ds == 1:
+            sa, da, bssid = a3, ra, ta
+        elif to_ds == 1 and from_ds == 0:
+            sa, da, bssid = ta, a3, ra
+        elif to_ds == 1 and from_ds == 1:
+            sa, da, bssid = a4, a3, None
+
+        # QoS Control
+        if is_qos:
+            qos = unpack("<H")
+
+        return {
+            "fc": {
+                "protocol_version": protocol_version,
+                "type": f_type,
+                "type_name": type_name,
+                "subtype": f_subtype,
+                "subtype_name": subtype_name,
+                "tods": to_ds,
+                "fromds": from_ds,
+                "protected": protected,
+            },
+            "duration_id": duration,
+            "ra": ra, "ta": ta, "sa": sa, "da": da, "bssid": bssid,
+            "sequence_number": seq,
+            "qos_control": qos
+        }
+
+    result = {}
+
+    try:
+        result = unpack("<H", parser=_parser)
+    except Exception as e:
+        logger.debug(f"MAC Header parser error: {e}")
+
+    return result
