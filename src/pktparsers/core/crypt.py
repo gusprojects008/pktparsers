@@ -139,3 +139,31 @@ def crc32_bytes(data: bytes) -> bytes:
     """CRC-32 as little-endian 4 bytes (WEP ICV)."""
     crc = binascii.crc32(data) & 0xFFFFFFFF
     return struct.pack("<I", crc)
+
+# pktparsers/core/crypt.py — acréscimo
+
+def analyze_capture_for_credentials(capture_path: Path, protocol: str) -> list[dict]:
+    """
+    Lê um arquivo de captura e extrai material de credentials para o protocolo.
+    
+    Para "ieee802_eapol": extrai pares (anonce, snonce, mic) de handshakes,
+    retorna como entries do tipo "handshake_material" para o usuário completar
+    com a PSK ou PMK.
+    
+    Para "tls": verifica se é um NSS keylog e retorna {"type": "keylog_file", "value": path}.
+    
+    Retorna lista de dicts prontos para inserir em credentials["keys"].
+    """
+    from pktparsers.io import read
+    from pktparsers.core.dissect import Dissector
+
+    result = []
+    with Dissector(protocol) as d:
+        for packet in read(capture_path):
+            dissected = d.dissect(packet)
+            # Cada protocolo registra um extractor em seu crypt.py
+            extractor = _get_credential_extractor(protocol)
+            if extractor:
+                entries = extractor(dissected)
+                result.extend(entries)
+    return result

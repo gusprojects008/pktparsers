@@ -238,6 +238,7 @@ with Dissector("DLT_IEEE802_11_RADIO") as dissector:
 * bitwise e endians são detalhes de parsers, não precisam ser constantizados em definitions.
 * In parsers/, create a directory for each parse module if it uses its own key names and sizes.
 * The correct criterion for managing modules is understanding what the module is and which domain/subsystem it belongs to, not who uses/imports it.
+* Parse/parser/parsers means binary extraction and analysis to generate a result with a syntactic structure that represents the original raw (binary) value that was passed as input.
 
 ## 13. Contribution Guidelines
 

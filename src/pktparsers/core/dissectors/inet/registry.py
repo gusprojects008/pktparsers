@@ -4,11 +4,8 @@ from pktparsers.core.definitions.entries import DissectorEntry
 from pktparsers.core.definitions import dlt as dlt
 from pktparsers.core.definitions import protocol as proto
 
-DLT: dict[int, DissectorEntry] = {
+DISSECTORS: dict[[int | str], DissectorEntry] = {
     dlt.DLT_RAW: DissectorEntry(...),
-}
-
-PROTOCOL: dict[str, DissectorEntry] = {
     proto.IP: DissectorEntry(
         description="Internet Protocol",
         layer=L3,

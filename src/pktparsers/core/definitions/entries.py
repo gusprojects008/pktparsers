@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 @dataclass
 class DissectorEntry:
+    kind: str
+    credentials_extractor: callable
     address_extractor: callable
     name: str
     parser: Callable
@@ -18,6 +20,7 @@ PARSE  = "parse"
 GLOBAL = "global"
 ANALYSIS = "analysis"
 PROTOCOL = "protocol"
+DLT = "dlt"
 
 L2 = "l2"
 L3 = "l3"

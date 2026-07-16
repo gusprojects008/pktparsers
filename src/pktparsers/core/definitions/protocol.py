@@ -1,9 +1,12 @@
+# standard: family/domain_protocolname
+
 ARP = "arp"
-WAPI = "wapi"
-IEEE802_11 =     "ieee802_11"
-IEEE802_3 =      "ieee802_3"
 IEEE802_1X =     "ieee802_1x"
+IEEE802_2 =      "ieee802_2"
+IEEE802_3 =      "ieee802_3"
+IEEE802_11 =     "ieee802_11"
 IEEE802_LLC =    "ieee802_llc"
+IEE802_WAPI =    "ieee802_wapi"
 IEEE802_EAPOL =  "ieee802_eapol"
 IEEE802_EAP =    "ieee802_eap"
 IEEE802_RADIUS = "ieee802_radius"
@@ -16,3 +19,13 @@ INET_TCP =    "inet_tcp"
 INET_UDP =    "inet_udp"
 INET_TLS =    "inet_tls"
 INET_IPSEC =  "inet_ipsec"
+
+"""
+Maybe in the future:
+
+IEEE802_2_LLC =    "ieee802_2_llc"
+IEE802_1X_WAPI = "ieee802_1x_wapi"
+IEEE802_1X_EAPOL =  "ieee802_1x_eapol"
+IEEE802_1X_EAP =    "ieee802_1x_eap"
+IEEE802_1X_RADIUS = "ieee802_1x_radius"
+"""

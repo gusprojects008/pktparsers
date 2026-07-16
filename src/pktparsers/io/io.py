@@ -5,6 +5,7 @@ import time
 import dpkt
 from pathlib import Path
 from typing import Generator
+from pktparser.core.filter_engine import FilterConfig
 from cli_core.files import iter_from_json, iter_json_objects, new_file_path
 from pktparsers.dissector import Dissector
 from pktparsers.common.definitions.dissect import DissectConfig
@@ -27,12 +28,16 @@ class OutputConfig:
     output_format: str | None
     compression: str | None 
 
+@dataclass 
+class Config:
+    filters: FilterConfig | None = None
+    output: OutputConfig | None = None
+
 def _detect_format(path: Path) -> str:
     suffix = path.suffix.lstrip(".").lower()
     if suffix not in supported_formats:
         raise ValueError(f"Unsupported format: {suffix!r}")
     return suffix
-
 
 def _extract_raw(result: dict) -> bytes | None:
     """Extract raw bytes from a dissect result dict."""

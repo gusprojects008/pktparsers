@@ -19,6 +19,7 @@ Esta seção contém percepções coletadas durante o desenvolvimento; nenhuma e
 * Utilizar GitHub Docs.
 
 ## O que está faltando? para corrigir / adicionar
+* Ver como posso otimizar do método get_addresses de ParseContext.
 * Corrigir como registry vai definir config de ProtocolEntry: ou DltEntry.
 * Substituir todos os hardcodes de tamanhos, struct formats e nomes de chaves de resultado de parsers, por constantes. Atualizar todos os formats de struct, para utilizarem valores de constantes definidas, dessa forma irá eliminar boa parte dos hardcodes, irá melhorar a legibilidade, e significativamente a escalabilidade.
 * A estrutura de dissect config será: {"global": {"crypt": {}, "parse": {}, "analysis": {}}, nome_do_protocolo_ou_dlt: {"crypt": {}, "parse": {}, "analysis": {}}}

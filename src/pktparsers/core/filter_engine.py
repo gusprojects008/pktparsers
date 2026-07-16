@@ -1,6 +1,10 @@
 import re
 import operator
+from __future__ import annotations
+from typing import Callable
+from pktparsers.io.writer import PacketWriter
 from pktparsers.core.definitions.parsing import (PARSED, VALUE, METADATA)
+from pktparsers.core.app.context import Context as AppContext
 
 operators = {
     ">=": operator.ge,
@@ -10,6 +14,97 @@ operators = {
     ">": operator.gt,
     "<": operator.lt,
 }
+
+@dataclass 
+class FilterConfig
+    store: str = ""
+    display: str = ""
+
+class FilterEngine:
+    """
+    Gerencia store filter e display filter, independente de UI.
+
+    - store_filter:   expressão booleana; pacotes que passam são escritos em disco
+                      via PacketWriter (se output_path estiver configurado).
+    - display_filter: lista de campos separados por vírgula; controla quais campos
+                      são exibidos na PacketList.
+
+    Instanciado pelo TUIApp e injetado no FilterBar via construtor.
+    Pode ser controlado externamente por aplicações hospedeiras (ex: framesniff).
+    """
+
+    def __init__(self, config: AppConfig | None = None) -> None:
+        self._config = config
+        self._store_filter: str = ""
+        self._display_filter: str = ""
+        self._writer: PacketWriter | None = None
+        self._on_change_callbacks: list[Callable[["FilterEngine"], None]] = []
+
+    # ── Acesso aos filtros ────────────────────────────────────────────────
+
+    @property
+    def store_filter(self) -> str:
+        return self._store_filter
+
+    @property
+    def display_filter(self) -> str:
+        return self._display_filter
+
+    # ── Mutação ───────────────────────────────────────────────────────────
+
+    def set_store_filter(self, expr: str) -> None:
+        """Define o store filter e notifica listeners."""
+        self._store_filter = expr
+        self._notify()
+
+    def set_display_filter(self, expr: str) -> None:
+        """Define o display filter e notifica listeners."""
+        self._display_filter = expr
+        self._notify()
+
+    # ── Aplicação ─────────────────────────────────────────────────────────
+
+    def apply(self, parsed: dict) -> tuple[bool, dict | None]:
+        """
+        Avalia store e display filters para um pacote dissecado.
+        Retorna (store_pass: bool, display_result: dict | None).
+        """
+        return apply_filters(self._store_filter, self._display_filter, parsed)
+
+    def write_if_passes(self, parsed: dict) -> None:
+        """
+        Se o store_filter passar e houver um PacketWriter configurado,
+        escreve o pacote em disco.
+        Chamado pelo TUIApp a cada pacote carregado.
+        """
+        if not self._writer:
+            return
+        store_pass, _ = self.apply(parsed)
+        if store_pass:
+            self._writer.write(parsed)
+
+    # ── PacketWriter (store) ──────────────────────────────────────────────
+
+    def open_writer(self, output_path: "Path", fmt: str = "pcapng") -> None:
+        """Abre ou reabre o PacketWriter para store filter."""
+        self.close_writer()
+        self._writer = PacketWriter(output_path, output_format=fmt)
+
+    def close_writer(self) -> None:
+        if self._writer:
+            self._writer.__exit__(None, None, None)
+            self._writer = None
+
+    # ── Callbacks ─────────────────────────────────────────────────────────
+
+    def on_change(self, callback: Callable[["FilterEngine"], None]) -> None:
+        """Registra callback chamado quando qualquer filtro mudar."""
+        self._on_change_callbacks.append(callback)
+
+    def _notify(self) -> None:
+        for cb in self._on_change_callbacks:
+            cb(self)
+
 
 def get_nested(path: str, dct: dict, default=None):
     keys = path.split(".")

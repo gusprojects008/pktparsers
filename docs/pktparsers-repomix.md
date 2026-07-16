@@ -28,7 +28,7 @@ The content is organized as follows:
 ## Notes
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Files matching these patterns are excluded: docs, .venv, __pycache__, **/*.json, **/ie/**, tests, .**, src/pktparsers/io
+- Files matching these patterns are excluded: docs, .venv, __pycache__, **/*.json, **/ie/**, tests, .**
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 - Files are sorted by Git change count (files with more changes are at the bottom)
@@ -105,6 +105,10 @@ src/
                 parse.py
               body.py
               common.py
+            protocol/
+              wep/
+                crypt.py
+                definitions.py
             __init__.py
             crypt.py
             definitions.py
@@ -169,17 +173,24 @@ src/
             custom_a.py
             custom_b.py
         __init__.py
+        registry.py
       __init__.py
       analysis.py
       crypt.py
       dissect.py
       filter_engine.py
       parsing.py
-      registry.py
       traffic.py
+    io/
+      __init__.py
+      io.py
+      reader.py
+      writer.py
     tui/
       screens/
+        credentials_config.py
         dissect_config.py
+        packet_editor.py
       widgets/
         fieldeditor.py
         hex_view.py
@@ -199,12 +210,207 @@ README.md
 
 # Files
 
+## File: src/pktparsers/core/dissectors/ieee802/dot11/protocol/wep/crypt.py
+```python
+
+```
+
+## File: src/pktparsers/core/dissectors/ieee802/dot11/protocol/wep/definitions.py
+```python
+
+```
+
+## File: src/pktparsers/core/dissectors/registry.py
+```python
+# pktparsers/core/registry.py
+
+# core/registry.py — agrega tudo, mantém flat
+from pktparsers.core.dissectors.ieee802 import registry as ieee802_registry
+from pktparsers.core.dissectors.inet    import registry as inet_registry
+from pktparsers.core.dissectors.bluetooth import registry as bt_registry
+# protocolos, dlts ou padrões simples, que não possuem sub-protocolos, ou que não estão associados à nenhum domínio/família como inet ou ieee80211, são registrados diretamente na tabela, como o no caso de ARP
+from pktparsers.core.dissectors.arp import parse as arp_parse
+import pktparsers.core.definitions.protocol as proto
+import pktparsers.core.definitions.entries as (L2, L3, L4, L7)
+
+DISSECTORS: dict[int str, DissectorEntry] = {
+    **ieee802_registry.DISSECTORS,
+    **ieee802_registry.DISSECTORS,
+    **inet_registry.DISSECTORS,
+    **bt_registry.DISSECTORS,
+    # arp diretamente aqui
+    proto.ARP: DissectorEntry(
+        description="Address Resolution Protocol",
+        kind=PROTOCOL,
+        layer=L3,
+        parser=arp_parse.arp,
+        config=None,
+    ),
+}
+
+def get_dissector(identifier):
+    if isinstance(identifier, int):
+        identifier = DLTS.get(identifier)
+    return DISSECTORS.get(identifier)
+
+# used by dissectors in dissectors/raw/
+def register(dissector_id: int | str, entry: DissectorEntry): # dissector_id it could be a protocol name or a DLT value.
+    DISSECTORS[dissector_id] = entry
+    return DISSECTORS
+```
+
+## File: src/pktparsers/tui/screens/credentials_config.py
+```python
+# pktparsers/tui/screens/credentials_config.py
+
+class CredentialsConfigScreen(ModalScreen):
+    """
+    Modal de edição de credentials de um protocolo de autenticação.
+    Gerado a partir de config["protocol"][protocol_name]["crypt"].
+    """
+
+    def __init__(self, protocol_name: str, crypt_config: dict) -> None:
+        self._protocol   = protocol_name
+        self._crypt_cfg  = crypt_config
+        super().__init__()
+
+    def compose(self):
+        keys = self._crypt_cfg.get(CREDENTIALS, {}).get("keys", [])
+
+        yield Label(f"Credentials — {self._protocol}")
+
+        # Lista de keys existentes — cada uma editável/removível
+        for i, key_entry in enumerate(keys):
+            yield Horizontal(
+                Input(value=key_entry.get("value", ""), id=f"key-value-{i}"),
+                Select([(t, t) for t in self._supported_types()], value=key_entry.get("type"), id=f"key-type-{i}"),
+                Button("✕", id=f"remove-{i}"),
+            )
+
+        yield Horizontal(
+            Button("+ Add key",            id="btn-add-key"),
+            Button("Load from capture…",   id="btn-load-capture"),
+            Button("Save",                 id="btn-save"),
+        )
+
+    def _supported_types(self) -> list[str]:
+        # Lido do make_config() do protocolo — sem hardcode aqui
+        return self._crypt_cfg.get("supported_key_types", ["psk", "pmk", "tk"])
+
+    def on_button_pressed(self, event: Button.Pressed):
+        if event.button.id == "btn-load-capture":
+            # Abre FileSelector → on_file_selected chama analyze_capture_for_credentials()
+            self.app.push_screen(FileSelectorScreen(callback=self._on_capture_selected))
+
+    def _on_capture_selected(self, path: Path) -> None:
+        from pktparsers.core.crypt import analyze_capture_for_credentials
+        keys = analyze_capture_for_credentials(path, self._protocol)
+        # Popula a lista de keys automaticamente
+        self._crypt_cfg[CREDENTIALS]["keys"].extend(keys)
+        self.refresh()
+```
+
+## File: src/pktparsers/tui/screens/packet_editor.py
+```python
+# pktparsers/tui/screens/packet_editor.py
+
+class PacketEditorScreen(Screen):
+    """
+    Tela de edição de pacote bruto.
+    `extra_actions` permite aplicações hospedeiras injetar widgets
+    (ex: botão "Send Raw" do framesniff) sem modificar esta classe.
+    """
+    
+    def __init__(self, parsed: dict, raw: str, extra_actions: list = None):
+        self._parsed       = parsed
+        self._raw          = raw
+        self._extra_actions = extra_actions or []   # lista de Widgets prontos
+        super().__init__()
+
+    def compose(self):
+        yield PacketTree(id="editor-tree")
+        yield HexView(id="editor-hex")
+        yield Horizontal(
+            Button("Save", id="btn-save"),
+            Button("Export", id="btn-export"),
+            *self._extra_actions,          # framesniff injeta aqui
+        )
+```
+
+## File: src/pktparsers/app/bootstrap.py
+```python
+from dataclasses import dataclass
+from cli_core.deps import check_dependencies
+
+@dataclass
+class BootstrapResult:
+    context: object
+    operations: object
+
+def init(config: dict) -> BootstrapResult:
+    MODULE_DEPENDENCIES = config.get("module_dependencies")
+    SYSTEM_DEPENDENCIES = config.get("system_dependencies")
+
+    check_dependencies(MODULE_DEPENDENCIES, SYSTEM_DEPENDENCIES)
+
+    from cli_core.log import setup_logging, build_logging_config
+
+    if config.get("argparse"):
+        args = config.get("argparse").get("args")
+        logging_config = build_logging_config(args.verbose, args.output)
+        log_filepath = setup_logging(logging_config=logging_config)
+    else:
+        log_filepath = setup_logging(verbose=True, output_fullpath="pktparsers-debug.log")
+
+    from pktparsers.app.context import AppContext
+    from pktparsers.app.app import Operations
+
+    config["log_filepath"] = log_filepath
+
+    context = AppContext(config)
+    operations = Operations(context)
+
+    return BootstrapResult(context, operations)
+```
+
+## File: src/pktparsers/cli/__init__.py
+```python
+
+```
+
+## File: src/pktparsers/cli/__main__.py
+```python
+from pktparsers.cli.main import main
+main()
+```
+
+## File: src/pktparsers/common/__init__.py
+```python
+
+```
+
+## File: src/pktparsers/core/definitions/dlt.py
+```python
+DLT_EN10MB = 1
+DLT_ATM_RFC1483 = 11
+DLT_RAW = 12
+DLT_HDLC = 104
+DLT_IEEE802_11_RADIO = 127
+DLT_LINUX_SLL = 113
+DLT_IPV4 = 228
+DLT_IPV6 = 229
+DLT_BLUETOOTH_HCI_H4 = 187
+DLT_BLUETOOTH_HCI_H4_PHDR = 201
+```
+
 ## File: src/pktparsers/core/definitions/entries.py
 ```python
 from dataclasses import dataclass
 
 @dataclass
 class DissectorEntry:
+    kind: str
+    credentials_extractor: callable
     address_extractor: callable
     name: str
     parser: Callable
@@ -221,6 +427,7 @@ PARSE  = "parse"
 GLOBAL = "global"
 ANALYSIS = "analysis"
 PROTOCOL = "protocol"
+DLT = "dlt"
 
 L2 = "l2"
 L3 = "l3"
@@ -228,14 +435,78 @@ L4 = "l4"
 L7 = "l7"
 ```
 
+## File: src/pktparsers/core/definitions/erf.py
+```python
+from .definitions.dlt import *
+
+ERF_TYPE_LEGACY  = 0
+ERF_TYPE_HDLC_POS = 2
+ERF_TYPE_ETH = 3
+ERF_TYPE_ATM = 4
+ERF_TYPE_AAL5 = 5
+ERF_TYPE_MC_HDLC = 7
+ERF_TYPE_MC_RAW = 8
+ERF_TYPE_MC_ATM = 9
+ERF_TYPE_MC_AAL5 = 10
+ERF_TYPE_COLOR_HDLC_POS = 16
+ERF_TYPE_COLOR_ETH = 17
+ERF_TYPE_MC_AAL2 = 19
+ERF_TYPE_IP_COUNTER = 20
+ERF_TYPE_IPV4 = 21
+ERF_TYPE_IPV6 = 22
+ERF_TYPE_RESERVED_23 = 23
+ERF_TYPE_RAW_LINK = 24
+ERF_TYPE_INFINIBAND = 25
+ERF_TYPE_IPC = 26
+ERF_TYPE_TUNNEL_IP = 27
+ERF_TYPE_CLASSIFICATION = 28
+ERF_TYPE_PASSIVE_CONTAINER = 29
+ERF_TYPE_ETHERNET_SGMII = 30
+ERF_TYPE_PROVENANCE = 31
+ERF_TYPE_FIBRE_CHANNEL = 32
+ERF_TYPE_I2C = 33
+ERF_TYPE_LORA = 34
+ERF_TYPE_COEX = 35
+ERF_TYPE_GENERIC_METADATA = 36
+ERF_TYPE_UTMI = 37
+ERF_TYPE_MISC_METADATA = 38
+ERF_TYPE_AAL5_INTERLEAVE = 39
+ERF_TYPE_P2P_DECAP = 40
+ERF_TYPE_EPON_ONU = 41
+ERF_TYPE_EPON_OLT = 42
+ERF_TYPE_EMULATED_CHANNEL = 43
+ERF_EXTENSION_MASK = 0x80
+
+ERF_TYPE_TO_DLT = {
+    ERF_TYPE_HDLC_POS: DLT_HDLC,
+    ERF_TYPE_ETH: DLT_EN10MB,
+    ERF_TYPE_ATM: DLT_ATM_RFC1483,
+    ERF_TYPE_AAL5: DLT_ATM_RFC1483,
+    ERF_TYPE_MC_HDLC: DLT_HDLC,
+    ERF_TYPE_MC_RAW: DLT_RAW,
+    ERF_TYPE_MC_ATM: DLT_ATM_RFC1483,
+    ERF_TYPE_MC_AAL5: DLT_ATM_RFC1483,
+    ERF_TYPE_COLOR_HDLC_POS: DLT_HDLC,
+    ERF_TYPE_COLOR_ETH: DLT_EN10MB,
+    ERF_TYPE_IPV4: DLT_IPV4,
+    ERF_TYPE_IPV6: DLT_IPV6,
+    ERF_TYPE_RAW_LINK: DLT_RAW,
+    ERF_TYPE_TUNNEL_IP: DLT_RAW,
+    ERF_TYPE_ETHERNET_SGMII: DLT_EN10MB,
+}
+```
+
 ## File: src/pktparsers/core/definitions/protocol.py
 ```python
+# standard: family/domain_protocolname
+
 ARP = "arp"
-WAPI = "wapi"
-IEEE802_11 =     "ieee802_11"
-IEEE802_3 =      "ieee802_3"
 IEEE802_1X =     "ieee802_1x"
+IEEE802_2 =      "ieee802_2"
+IEEE802_3 =      "ieee802_3"
+IEEE802_11 =     "ieee802_11"
 IEEE802_LLC =    "ieee802_llc"
+IEE802_WAPI =    "ieee802_wapi"
 IEEE802_EAPOL =  "ieee802_eapol"
 IEEE802_EAP =    "ieee802_eap"
 IEEE802_RADIUS = "ieee802_radius"
@@ -248,6 +519,16 @@ INET_TCP =    "inet_tcp"
 INET_UDP =    "inet_udp"
 INET_TLS =    "inet_tls"
 INET_IPSEC =  "inet_ipsec"
+
+"""
+Maybe in the future:
+
+IEEE802_2_LLC =    "ieee802_2_llc"
+IEE802_1X_WAPI = "ieee802_1x_wapi"
+IEEE802_1X_EAPOL =  "ieee802_1x_eapol"
+IEEE802_1X_EAP =    "ieee802_1x_eap"
+IEEE802_1X_RADIUS = "ieee802_1x_radius"
+"""
 ```
 
 ## File: src/pktparsers/core/definitions/result.py
@@ -2538,12 +2819,13 @@ if __name__ == "__main__":
 ```python
 from pktparsers.core.definitions import dlt as dlt
 from pktparsers.core.definitions import protocol as proto
-from pktparsers.core.definitions.entries import (DissectorEntry, L2, L3)
+from pktparsers.core.definitions.entries import (DissectorEntry, L2, L3, DLT, PROTOCOL)
 
-DLT = {
+DISSECTORS = {
     dlt.DLT_IEEE802_11_RADIO: DissectorEntry(
         name="DLT_IEEE802_11_RADIO",
         parser=dot11_radio.parse,
+        kind=DLT,
         layer=L2,
         summarizer=dot11_radio.analyzers.summary.summarizer,
         analyzer=dot11_radio.analyzers.summary.analyzer,
@@ -2554,6 +2836,7 @@ DLT = {
         name="DLT_IEEE802_11",
         parser=dot11.parse,
         layer=L2,
+        kind=DLT,
         summarizer=dot11_summary.summarizer,
         analyzer=dot11_summary.analyzer,
         config=dot11.definitions.config,
@@ -2561,17 +2844,16 @@ DLT = {
 
     dlt.DLT_EN10MB: DissectorEntry(
         name="DLT_EN10MB",
+        kind=DLT,
         parser=dot3.parse,
         layer=L2,
         summarizer=dot3_summary.summarizer,
         analyzer=dot3_summary.analyzer,
         config=dot3.definitions.config,
     ),
-}
-
-PROTOCOL = {
     proto.IEEE802_11: DissectorEntry(
         description="IEEE 802.11",
+        kind=PROTOCOL,
         parser=dot11.parse,
         layer=L2,
         summarizer=dot11_summary.summarizer,
@@ -2583,6 +2865,7 @@ PROTOCOL = {
         description="IEEE 802.3 Ethernet",
         parser=dot3.parse,
         layer=L2,
+        kind=PROTOCOL,
         summarizer=dot3_summary.summarizer,
         analyzer=dot3_summary.analyzer,
         config=dot3.definitions.config,
@@ -2591,12 +2874,14 @@ PROTOCOL = {
     proto.IEEE802_1X: DissectorEntry(
         layer=L2,
         description="IEEE 802.1X",
+        kind=PROTOCOL,
         config=dot1x.definitions.config,
     ),
 
     proto.IEEE802_LLC: DissectorEntry(
         layer=L2,
         description="Logical Link Control",
+        kind=PROTOCOL,
         parser=llc.parse,
         summarizer=llc_summary.summarizer,
         analyzer=llc_summary.analyzer,
@@ -2607,6 +2892,8 @@ PROTOCOL = {
         description="EAP over LAN",
         layer=L2,
         parser=eapol.parse,
+        kind=PROTOCOL,
+        credentials_extractor=eapol.crypt.credentials_extractor,
         summarizer=eapol_summary.summarizer,
         analyzer=eapol_summary.analyzer,
         config=eapol.definitions.config,
@@ -2616,6 +2903,7 @@ PROTOCOL = {
         description="Extensible Authentication Protocol",
         layer=L2,
         parser=eap.parse,
+        kind=PROTOCOL,
         summarizer=eap_summary.summarizer,
         analyzer=eap_summary.analyzer,
         config=eap.definitions.config,
@@ -2626,6 +2914,7 @@ PROTOCOL = {
         parser=radius.parse,
         summarizer=radius_summary.summarizer,
         analyzer=radius_summary.analyzer,
+        kind=PROTOCOL,
         layer=L2,
         config=radius.definitions.config,
     ),
@@ -2780,11 +3069,8 @@ from pktparsers.core.definitions.entries import DissectorEntry
 from pktparsers.core.definitions import dlt as dlt
 from pktparsers.core.definitions import protocol as proto
 
-DLT: dict[int, DissectorEntry] = {
+DISSECTORS: dict[[int | str], DissectorEntry] = {
     dlt.DLT_RAW: DissectorEntry(...),
-}
-
-PROTOCOL: dict[str, DissectorEntry] = {
     proto.IP: DissectorEntry(
         description="Internet Protocol",
         layer=L3,
@@ -2861,322 +3147,6 @@ PROTOCOL: dict[str, DissectorEntry] = {
 ## File: src/pktparsers/core/dissectors/__init__.py
 ```python
 
-```
-
-## File: src/pktparsers/tui/screens/dissect_config.py
-```python
-# pktparsers/tui/screens/dissect_config.py
-
-from textual.screen import ModalScreen
-from textual.widgets import ListView, ListItem, Label, Switch, Input
-
-class DissectConfigScreen(ModalScreen):
-    """
-    Modal gerado dinamicamente a partir de AppConfig.dissect.
-    Não tem nenhuma referência hardcoded a protocolos específicos.
-    """
-
-    def __init__(self, app_config: "AppConfig") -> None:
-        self._app_config = app_config
-        super().__init__()
-
-    def compose(self):
-        # Itera dlt configs e protocol configs do AppConfig
-        # Cada chave do config dict vira um widget baseado no tipo do valor:
-        #   bool  → Switch
-        #   str   → Input
-        #   dict  → sub-seção expandível
-        for section, configs in self._app_config.dissect.items():
-            yield Label(section)
-            yield from self._widgets_for(configs)
-
-    def _widgets_for(self, cfg: dict):
-        for key, val in cfg.items():
-            if isinstance(val, bool):
-                yield Switch(value=val, id=key)
-            elif isinstance(val, str):
-                yield Input(value=val, placeholder=key, id=key)
-            elif isinstance(val, dict):
-                yield Label(f"  {key}")
-                yield from self._widgets_for(val)
-```
-
-## File: src/pktparsers/tui/widgets/hex_view.py
-```python
-# pktparsers/tui/widgets/hex_view.py
-
-from textual.widget import Widget
-from textual.reactive import reactive
-from rich.text import Text
-
-BYTES_PER_ROW = 16
-
-class HexView(Widget):
-    
-    highlight_start: reactive[int] = reactive(0)
-    highlight_end:   reactive[int] = reactive(0)
-
-    def load(self, raw_hex: str) -> None:
-        self._raw = bytes.fromhex(raw_hex)
-        self.refresh()
-
-    def set_highlight(self, start: int, end: int) -> None:
-        self.highlight_start = start
-        self.highlight_end   = end
-
-    def render(self) -> Text:
-        if not hasattr(self, "_raw"):
-            return Text()
-        text = Text()
-        for i, byte in enumerate(self._raw):
-            hl = self.highlight_start <= i < self.highlight_end
-            style = "bold white on dark_blue" if hl else ""
-            text.append(f"{byte:02x} ", style=style)
-            if (i + 1) % BYTES_PER_ROW == 0:
-                text.append("\n")
-        return text
-```
-
-## File: src/pktparsers/tui/widgets/packet_list.py
-```python
-# pktparsers/tui/widgets/packet_list.py
-
-from textual.widgets import DataTable
-from textual.message import Message
-
-class PacketList(DataTable):
-    
-    class PacketSelected(Message):
-        def __init__(self, index: int, parsed: dict, raw: str) -> None:
-            self.index  = index
-            self.parsed = parsed
-            self.raw    = raw
-            super().__init__()
-
-    class PacketEditRequested(Message):
-        def __init__(self, index: int, parsed: dict) -> None:
-            self.index  = index
-            self.parsed = parsed
-            super().__init__()
-```
-
-## File: src/pktparsers/tui/widgets/packet_tree.py
-```python
-# pktparsers/tui/widgets/packet_tree.py
-
-from textual.widgets import Tree
-from textual.widgets.tree import TreeNode
-from pktparsers.core.definitions.parsing import METADATA, PARSED, VALUE
-from pktparsers.core.definitions.analysis import SUMMARY
-
-class PacketTree(Tree):
-    """
-    Renderiza um dict parsed (resultado de Dissector.dissect) como árvore.
-    
-    Cada nó carrega o sub-dict correspondente para:
-      - Highlight sincronizado com HexView (via _metadata_.start/end)
-      - Context menu com Copy/As filter
-      - Edição de campo (se FieldEditor estiver ativo)
-    """
-    
-    def load_packet(self, parsed: dict) -> None:
-        self.clear()
-        self._build_node(self.root, parsed)
-        self.root.expand()
-
-    def _build_node(self, node: TreeNode, data: dict, key: str = "root") -> None:
-        meta     = data.get(METADATA, {})
-        parsed   = data.get(PARSED)
-        value    = data.get(VALUE)
-        summary  = data.get(SUMMARY)
-
-        label = self._make_label(key, parsed, value, summary, meta)
-        child = node.add(label, data=data)
-
-        if isinstance(parsed, dict):
-            for k, v in parsed.items():
-                if isinstance(v, dict):
-                    self._build_node(child, v, k)
-                else:
-                    child.add_leaf(f"{k}: {v}", data={VALUE: v})
-
-    def _make_label(self, key, parsed, value, summary, meta) -> str:
-        if summary:
-            return f"{key}  [{summary}]"
-        if value is not None and not isinstance(value, dict):
-            return f"{key}: {value}"
-        return key
-
-    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
-        data = event.node.data
-        if not data:
-            return
-        meta = data.get(METADATA, {})
-        # Emite mensagem para HexView sincronizar highlight
-        self.post_message(self.FieldFocused(
-            start=meta.get("start", 0),
-            end=meta.get("end", 0),
-            field_data=data,
-        ))
-
-    class FieldFocused(Message):
-        def __init__(self, start: int, end: int, field_data: dict) -> None:
-            self.start      = start
-            self.end        = end
-            self.field_data = field_data
-            super().__init__()
-```
-
-## File: src/pktparsers/app/bootstrap.py
-```python
-from dataclasses import dataclass
-from cli_core.deps import check_dependencies
-
-@dataclass
-class BootstrapResult:
-    context: object
-    operations: object
-
-def init(config: dict) -> BootstrapResult:
-    MODULE_DEPENDENCIES = config.get("module_dependencies")
-    SYSTEM_DEPENDENCIES = config.get("system_dependencies")
-
-    check_dependencies(MODULE_DEPENDENCIES, SYSTEM_DEPENDENCIES)
-
-    from cli_core.log import setup_logging, build_logging_config
-
-    if config.get("argparse"):
-        args = config.get("argparse").get("args")
-        logging_config = build_logging_config(args.verbose, args.output)
-        log_filepath = setup_logging(logging_config=logging_config)
-    else:
-        log_filepath = setup_logging(verbose=True, output_fullpath="pktparsers-debug.log")
-
-    from pktparsers.app.context import AppContext
-    from pktparsers.app.app import Operations
-
-    config["log_filepath"] = log_filepath
-
-    context = AppContext(config)
-    operations = Operations(context)
-
-    return BootstrapResult(context, operations)
-```
-
-## File: src/pktparsers/cli/__init__.py
-```python
-
-```
-
-## File: src/pktparsers/cli/__main__.py
-```python
-from pktparsers.cli.main import main
-main()
-```
-
-## File: src/pktparsers/common/__init__.py
-```python
-
-```
-
-## File: src/pktparsers/core/definitions/analysis.py
-```python
-FIRST_SEEN = "first_seen"
-LAST_SEEN = "last_seen"
-TRAFFIC_SUMMARY = "traffic_summary"
-ANNOTATIONS = "annotations"
-DEVICES = "devices"
-```
-
-## File: src/pktparsers/core/definitions/dlt.py
-```python
-DLT_EN10MB = 1
-DLT_ATM_RFC1483 = 11
-DLT_RAW = 12
-DLT_HDLC = 104
-DLT_IEEE802_11_RADIO = 127
-DLT_LINUX_SLL = 113
-DLT_IPV4 = 228
-DLT_IPV6 = 229
-DLT_BLUETOOTH_HCI_H4 = 187
-DLT_BLUETOOTH_HCI_H4_PHDR = 201
-```
-
-## File: src/pktparsers/core/definitions/erf.py
-```python
-from .definitions.dlt import *
-
-ERF_TYPE_LEGACY  = 0
-ERF_TYPE_HDLC_POS = 2
-ERF_TYPE_ETH = 3
-ERF_TYPE_ATM = 4
-ERF_TYPE_AAL5 = 5
-ERF_TYPE_MC_HDLC = 7
-ERF_TYPE_MC_RAW = 8
-ERF_TYPE_MC_ATM = 9
-ERF_TYPE_MC_AAL5 = 10
-ERF_TYPE_COLOR_HDLC_POS = 16
-ERF_TYPE_COLOR_ETH = 17
-ERF_TYPE_MC_AAL2 = 19
-ERF_TYPE_IP_COUNTER = 20
-ERF_TYPE_IPV4 = 21
-ERF_TYPE_IPV6 = 22
-ERF_TYPE_RESERVED_23 = 23
-ERF_TYPE_RAW_LINK = 24
-ERF_TYPE_INFINIBAND = 25
-ERF_TYPE_IPC = 26
-ERF_TYPE_TUNNEL_IP = 27
-ERF_TYPE_CLASSIFICATION = 28
-ERF_TYPE_PASSIVE_CONTAINER = 29
-ERF_TYPE_ETHERNET_SGMII = 30
-ERF_TYPE_PROVENANCE = 31
-ERF_TYPE_FIBRE_CHANNEL = 32
-ERF_TYPE_I2C = 33
-ERF_TYPE_LORA = 34
-ERF_TYPE_COEX = 35
-ERF_TYPE_GENERIC_METADATA = 36
-ERF_TYPE_UTMI = 37
-ERF_TYPE_MISC_METADATA = 38
-ERF_TYPE_AAL5_INTERLEAVE = 39
-ERF_TYPE_P2P_DECAP = 40
-ERF_TYPE_EPON_ONU = 41
-ERF_TYPE_EPON_OLT = 42
-ERF_TYPE_EMULATED_CHANNEL = 43
-ERF_EXTENSION_MASK = 0x80
-
-ERF_TYPE_TO_DLT = {
-    ERF_TYPE_HDLC_POS: DLT_HDLC,
-    ERF_TYPE_ETH: DLT_EN10MB,
-    ERF_TYPE_ATM: DLT_ATM_RFC1483,
-    ERF_TYPE_AAL5: DLT_ATM_RFC1483,
-    ERF_TYPE_MC_HDLC: DLT_HDLC,
-    ERF_TYPE_MC_RAW: DLT_RAW,
-    ERF_TYPE_MC_ATM: DLT_ATM_RFC1483,
-    ERF_TYPE_MC_AAL5: DLT_ATM_RFC1483,
-    ERF_TYPE_COLOR_HDLC_POS: DLT_HDLC,
-    ERF_TYPE_COLOR_ETH: DLT_EN10MB,
-    ERF_TYPE_IPV4: DLT_IPV4,
-    ERF_TYPE_IPV6: DLT_IPV6,
-    ERF_TYPE_RAW_LINK: DLT_RAW,
-    ERF_TYPE_TUNNEL_IP: DLT_RAW,
-    ERF_TYPE_ETHERNET_SGMII: DLT_EN10MB,
-}
-```
-
-## File: src/pktparsers/core/definitions/parsing.py
-```python
-EUI48_FMT = "6s"
-EUI64_FMT = "8s"
-OUI_FMT = "3s"
-IPV4_FMT = "4s"
-IPV6_FMT = "16s"
-
-PARSED = "parsed"
-COUNTER = "counter"
-VALUE = "value"
-METADATA = "_metadata_"
-RAW = "raw"
-TOKENS = "tokens"
 ```
 
 ## File: src/pktparsers/core/__init__.py
@@ -3327,6 +3297,1229 @@ def crc32_bytes(data: bytes) -> bytes:
     """CRC-32 as little-endian 4 bytes (WEP ICV)."""
     crc = binascii.crc32(data) & 0xFFFFFFFF
     return struct.pack("<I", crc)
+
+# pktparsers/core/crypt.py — acréscimo
+
+def analyze_capture_for_credentials(capture_path: Path, protocol: str) -> list[dict]:
+    """
+    Lê um arquivo de captura e extrai material de credentials para o protocolo.
+    
+    Para "ieee802_eapol": extrai pares (anonce, snonce, mic) de handshakes,
+    retorna como entries do tipo "handshake_material" para o usuário completar
+    com a PSK ou PMK.
+    
+    Para "tls": verifica se é um NSS keylog e retorna {"type": "keylog_file", "value": path}.
+    
+    Retorna lista de dicts prontos para inserir em credentials["keys"].
+    """
+    from pktparsers.io import read
+    from pktparsers.core.dissect import Dissector
+
+    result = []
+    with Dissector(protocol) as d:
+        for packet in read(capture_path):
+            dissected = d.dissect(packet)
+            # Cada protocolo registra um extractor em seu crypt.py
+            extractor = _get_credential_extractor(protocol)
+            if extractor:
+                entries = extractor(dissected)
+                result.extend(entries)
+    return result
+```
+
+## File: src/pktparsers/io/__init__.py
+```python
+"""
+I/O operations: reading and writing packet files.
+
+Supported formats:
+    - pcap, pcapng: libpcap formats
+    - erf: Endace ERF format
+    - json, jsonl: JSON formats
+
+Usage:
+    # Read packets
+    for dissect_result in read("capture.pcap"):
+        print(dissect_result[PARSED])
+    
+    # Write packets
+    write(raw_bytes, "output.pcap", fmt="pcap", dlt=1)
+    
+    # Incremental write with size limit
+    with PacketWriter("output.pcapng", max_bytes=100*1024*1024) as w:
+        for result in read("large.pcap"):
+            if not w.write(result):
+                break  # size cap reached
+    
+    # Merge files
+    merge_packets("input.pcap", "output.jsonl", "jsonl")
+"""
+
+from pktparsers.io.reader import read
+from pktparsers.io.writer import write, PacketWriter, merge_packets
+from pktparsers.io.filters import read_filters, write_filters
+
+__all__ = [
+    "read",
+    "write",
+    "PacketWriter",
+    "merge_packets",
+    "read_filters",
+    "write_filters",
+]
+```
+
+## File: src/pktparsers/io/io.py
+```python
+# pktparsers/common/io.py
+import json
+import struct
+import time
+import dpkt
+from pathlib import Path
+from typing import Generator
+from cli_core.files import iter_from_json, iter_json_objects, new_file_path
+from pktparsers.dissector import Dissector
+from pktparsers.common.definitions.dissect import DissectConfig
+from pktparsers.common.parse.definitions import ERF_TYPE_TO_DLT
+from pktparsers.common.parse.utils import raw_packet_extractor
+
+supported_formats = ["pcap", "pcapng", "erf", "json", "jsonl"]
+supported_compression_formats = ["gzip", "lz4"]
+
+@dataclass
+class CreateNewFileAfter:
+    packets_counter: int
+    kilobytes: int
+    seconds: int
+    hours: int
+    file_infix_pattern: Path
+    
+@dataclass
+class OutputConfig:
+    output_format: str | None
+    compression: str | None 
+
+def _detect_format(path: Path) -> str:
+    suffix = path.suffix.lstrip(".").lower()
+    if suffix not in supported_formats:
+        raise ValueError(f"Unsupported format: {suffix!r}")
+    return suffix
+
+
+def _extract_raw(result: dict) -> bytes | None:
+    """Extract raw bytes from a dissect result dict."""
+    parsed = result.get(PARSED)
+    raw = parsed.get(RAW) if isinstance(parsed, dict) else result.get(RAW)
+    if isinstance(raw, str):
+        return bytes.fromhex(raw)
+    return raw
+
+
+def _build_erf_record(raw: bytes, ts: float, erf_type: int) -> bytes:
+    """
+    Build a minimal ERF record from raw bytes.
+
+    ERF header layout (16 bytes):
+        timestamp (8) | type (1) | flags (1) | rlen (2) | lctr (2) | wlen (2)
+    For TYPE_ETH (0x02) an additional 2-byte pad follows the header.
+    """
+    ETH_PAD = 2
+    ERF_HDR_LEN = 16 + ETH_PAD
+    flags = 0x00
+    wlen = len(raw)
+    rlen = ERF_HDR_LEN + wlen
+
+    # 64-bit little-endian fixpoint: upper 32 bits = seconds, lower 32 = fraction
+    sec = int(ts)
+    frac = int((ts - sec) * (2 ** 32))
+    erf_ts = (sec << 32) | frac
+
+    header = struct.pack("<QBBHHHH", erf_ts, erf_type, flags, rlen, 0, wlen, 0)
+    pad = b"\x00" * ETH_PAD
+    return header + pad + raw
+
+
+def _write_pcap(packet: bytes | dict, path: Path, dlt: int = 1, ts: float = None):
+    """
+    Append a single packet to a .pcap file.
+
+    dpkt.pcap.Writer always writes a fresh global header when constructed,
+    so appending by seeking to the end is not straightforward. The safest
+    approach for a standalone write() call is to open a new file each time.
+    For high-frequency incremental writes use PacketWriter instead.
+    """
+    ts = ts or time.time()
+    raw = packet if isinstance(packet, bytes) else _extract_raw(packet)
+    if not raw:
+        return
+    with open(path, "wb") as f:
+        w = dpkt.pcap.Writer(f, linktype=dlt)
+        w.writepkt(raw, ts=ts)
+
+
+def _write_pcapng(packet: bytes | dict, path: Path, dlt: int = 1, ts: float = None):
+    """Append a single packet to a .pcapng file."""
+    ts = ts or time.time()
+    raw = packet if isinstance(packet, bytes) else _extract_raw(packet)
+    if not raw:
+        return
+    with open(path, "wb") as f:
+        w = dpkt.pcapng.Writer(f)
+        w.writepkt(raw, ts=ts)
+
+
+def _write_erf(packet: bytes | dict, path: Path, dlt: int = 1, ts: float = None):
+    """
+    Append a single ERF record to a .erf file.
+
+    The ERF type is inferred from the DLT when possible; defaults to
+    TYPE_ETH (0x02) for DLT_EN10MB (1).
+    """
+    ts = ts or time.time()
+    raw = packet if isinstance(packet, bytes) else _extract_raw(packet)
+    if not raw:
+        return
+
+    # Reverse-lookup: DLT → ERF type (take the first match)
+    erf_type = next(
+        (etype for etype, d in ERF_TYPE_TO_DLT.items() if d == dlt),
+        0x02,  # fallback to TYPE_ETH
+    )
+    record = _build_erf_record(raw, ts, erf_type=erf_type)
+    with open(path, "ab") as f:
+        f.write(record)
+
+
+def _write_jsonl(packet: bytes | dict, path: Path, dlt: int = 1, ts: float = None):
+    """Append a single entry to a .jsonl file."""
+    entry = packet if isinstance(packet, dict) else {RAW: packet.hex()}
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _write_json(packet: bytes | dict, path: Path, dlt: int = 1, ts: float = None):
+    """
+    Write a single entry to a .json file.
+
+    Because JSON is a single serialised value, each call overwrites the
+    file. This is intentional: json is a batch/single-object format.
+    For streaming writes use jsonl instead.
+    """
+    entry = packet if isinstance(packet, dict) else {RAW: packet.hex()}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(entry, f, indent=4, ensure_ascii=False)
+        f.write("\n")
+
+
+_WRITE_DISPATCH: dict[str, callable] = {
+    "pcap":   _write_pcap,
+    "pcapng": _write_pcapng,
+    "erf":    _write_erf,
+    "jsonl":  _write_jsonl,
+    "json":   _write_json,
+}
+
+def _read_pcap(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """
+    Read a .pcap file and dissect each packet with a single Dissector
+    instantiated from the file's global DLT.
+
+    Yields: Dissector.dissect() result for each packet.
+    """
+    with open(path, "rb") as f:
+        reader = dpkt.pcap.Reader(f)
+        dlt = reader.datalink()
+        with Dissector(dlt, config) as dissector:
+            for _ts, raw in reader:
+                yield dissector.dissect(raw)
+
+
+def _read_pcapng(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """
+    Read a .pcapng file.
+
+    pcapng may contain multiple interfaces (IDB — Interface Description
+    Block), each with its own DLT. One Dissector is instantiated per
+    interface and kept alive for the entire read so that each interface
+    accumulates its own TrafficContext.
+
+    Yields: Dissector.dissect() result enriched with
+            {"interface_id": <int>, "dlt": <int>}.
+    """
+    dissectors: dict[int, Dissector] = {}  # iface_id → Dissector
+
+    with open(path, "rb") as f:
+        reader = dpkt.pcapng.Reader(f)
+
+        # Pre-instantiate a Dissector for every interface declared in the file.
+        for iface_id, iface_info in enumerate(reader.interfaces):
+            dlt = iface_info.get("dlt") or iface_info.get("linktype")
+            if dlt is not None:
+                dissectors[iface_id] = Dissector(dlt, config)
+
+        for _ts, raw, iface_id in reader:  # requires dpkt >= 1.9.8
+            dissector = dissectors.get(iface_id)
+
+            if dissector is None:
+                # Interface discovered at runtime (rare — IDB after first EPB).
+                iface_info = reader.interfaces[iface_id]
+                dlt = iface_info.get("dlt") or iface_info.get("linktype")
+                dissectors[iface_id] = Dissector(dlt, config)
+                dissector = dissectors[iface_id]
+
+            result = dissector.dissect(raw)
+            result["interface_id"] = iface_id
+            result["dlt"] = dissector.dlt
+            yield result
+
+
+def _read_erf(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """
+    Read an .erf file (Endace ERF format).
+
+    ERF has no global DLT header — the link type is determined by the
+    'type' field in each record. One Dissector is instantiated lazily per
+    ERF type and kept alive to accumulate TrafficContext per link type.
+
+    Yields: Dissector.dissect() result enriched with
+            {"erf_type": <int>, "dlt": <int>},
+            or an error dict for unsupported ERF types.
+    """
+    dissectors: dict[int, Dissector] = {}  # erf_type → Dissector
+
+    with open(path, "rb") as f:
+        for record in dpkt.erf.ERF(f):
+            erf_type = record.type & 0x7F  # mask out bit 7 (extension headers flag)
+            dlt = ERF_TYPE_TO_DLT.get(erf_type)
+
+            if dlt is None:
+                yield {
+                    "erf_type": erf_type,
+                    "dlt": None,
+                    PARSED: None,
+                    "error": f"Unsupported ERF type 0x{erf_type:02x}",
+                }
+                continue
+
+            if erf_type not in dissectors:
+                dissectors[erf_type] = Dissector(dlt, config)
+
+            result = dissectors[erf_type].dissect(bytes(record.data))
+            result["erf_type"] = erf_type
+            result["dlt"] = dlt
+            yield result
+
+
+_READ_DISPATCH: dict[str, callable] = {
+    "pcap":   _read_pcap,
+    "pcapng": _read_pcapng,
+    "erf":    _read_erf,
+}
+
+def read(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """
+    Read any supported format and yield dissection results.
+
+    For json/jsonl: iterates objects directly (no dissection).
+    For pcap/pcapng/erf: dissects each packet via the appropriate reader.
+    """
+    path = Path(path)
+    fmt = _detect_format(path)
+
+    if fmt in ("json", "jsonl"):
+        yield from iter_json_objects(path)
+        return
+
+    yield from _READ_DISPATCH[fmt](path, config)
+
+
+def write(
+    packet: bytes | dict,
+    path: Path,
+    fmt: str,
+    dlt: int = 1,
+    ts: float = None,
+):
+    """
+    Write a single packet (raw bytes or dissect result dict) to a file.
+
+    Delegates to the format-specific internal writer via _WRITE_DISPATCH.
+    For high-frequency incremental writes, prefer PacketWriter to avoid
+    reopening the file on every call.
+    """
+    path = Path(path)
+    fn = _WRITE_DISPATCH.get(fmt)
+    if fn is None:
+        raise ValueError(f"Unsupported write format: {fmt!r}")
+    fn(packet, path, dlt=dlt, ts=ts or time.time())
+
+
+def merge_packets(src: Path, dst: Path | None, dst_format: str):
+    """
+    Read packets from `src` (any supported format), extract raw bytes, and
+    write them to `dst` in `dst_format`.
+
+    Source format is detected automatically from the file extension.
+    If `dst` is None, a path is derived from `src` with the new suffix;
+    if that path already exists, new_file_path() adds a timestamp suffix.
+
+    For json/jsonl sources, raw bytes are extracted via raw_packet_extractor
+    and iter_from_json so the full object tree is walked correctly.
+    For pcap/pcapng/erf sources, raw bytes are extracted from each dissect
+    result the same way.
+    """
+    src = Path(src)
+    src_fmt = _detect_format(src)
+
+    if dst is None:
+        dst = src.with_suffix(f".{dst_format}")
+        if dst.exists():
+            dst = new_file_path(dst)
+
+    dst = Path(dst)
+    extractor = raw_packet_extractor()
+
+    with PacketWriter(dst, fmt=dst_format) as writer:
+        if src_fmt in ("json", "jsonl"):
+            """
+            iter_from_json walks the full object tree with the extractor,
+            which is more correct than iterating raw objects and calling
+            the extractor manually.
+            """
+            for _hex, _raw in iter_from_json(src, extractor):
+                writer.write({RAW: _hex})
+        else:
+            for result in _READ_DISPATCH[src_fmt](src):
+                for _hex, _raw in extractor(result):
+                    writer.write({RAW: _hex})
+
+
+class PacketWriter:
+    """
+    Utility class for incremental packet writing with an optional output
+    file size cap.
+
+    Supports all formats in `supported_formats`. When the output file
+    reaches `max_bytes`, write() returns False and the caller is
+    responsible for stopping. The file is not closed automatically on
+    limit; use the context manager or call close() explicitly.
+
+    Basic usage:
+        with PacketWriter("capture.pcap", dlt=1, max_bytes=50*1024*1024) as w:
+            for result in read(src):
+                if not w.write(result):
+                    break  # size limit reached
+
+    Notes on json format:
+        Because a JSON file is a single serialised value, incremental
+        appending is not meaningful. PacketWriter accumulates all entries
+        in memory and serialises the complete list on close(). For large
+        captures, prefer jsonl to avoid memory pressure.
+    """
+
+    def __init__(
+        self,
+        path: Path | str,
+        fmt: str = None,
+        dlt: int = 1,
+        max_bytes: int = None,
+    ):
+        self.path = Path(path)
+        self.fmt = fmt or _detect_format(self.path)
+        self.dlt = dlt
+        self.max_bytes = max_bytes
+
+        self._handle = None
+        self._writer = None
+        self._json_buffer: list[dict] = []  # only used when fmt == "json"
+        self._closed = False
+
+    def __enter__(self):
+        self._open()
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def _open(self):
+        if self.fmt in ("json", "jsonl"):
+            self._handle = open(self.path, "w", encoding="utf-8")
+        else:
+            self._handle = open(self.path, "wb")
+
+        if self.fmt == "pcap":
+            self._writer = dpkt.pcap.Writer(self._handle, linktype=self.dlt)
+        elif self.fmt == "pcapng":
+            self._writer = dpkt.pcapng.Writer(self._handle)
+        elif self.fmt == "erf":
+            self._writer = self._handle
+        # jsonl and json write directly through self._handle / self._json_buffer
+
+    def _current_size(self) -> int:
+        """Return the current on-disk size of the output file in bytes."""
+        return self.path.stat().st_size if self.path.exists() else 0
+
+    def write(self, result: dict, ts: float = None) -> bool:
+        """
+        Write one dissect result (or a plain {"raw": ...} dict) to the file.
+
+        Returns True on success, False if the size limit has been reached.
+        The file is NOT closed on False; call close() or use the context manager.
+        """
+        if self._closed:
+            return False
+
+        if self.max_bytes and self._current_size() >= self.max_bytes:
+            return False
+
+        ts = ts or time.time()
+
+        if self.fmt == "pcap":
+            raw = _extract_raw(result)
+            if raw:
+                self._writer.writepkt(raw, ts=ts)
+
+        elif self.fmt == "pcapng":
+            raw = _extract_raw(result)
+            if raw:
+                self._writer.writepkt(raw, ts=ts)
+
+        elif self.fmt == "erf":
+            raw = _extract_raw(result)
+            if raw:
+                erf_type = result.get("erf_type")
+                self._handle.write(_build_erf_record(raw, ts, erf_type=erf_type))
+
+        elif self.fmt == "jsonl":
+            self._handle.write(json.dumps(result, ensure_ascii=False) + "\n")
+
+        elif self.fmt == "json":
+            # Accumulate in memory; the list is flushed to disk on close().
+            self._json_buffer.append(result)
+
+        return True
+
+    def close(self):
+        if self._closed:
+            return
+
+        if self.fmt == "json" and self._json_buffer and self._handle:
+            json.dump(self._json_buffer, self._handle, indent=4, ensure_ascii=False)
+            self._handle.write("\n")
+
+        if self._handle:
+            self._handle.flush()
+            self._handle.close()
+
+        self._closed = True
+
+def normalize_filter(value):
+    if isinstance(value, (list, tuple)):
+        return " ".join(map(str, value))
+    return value or ""
+
+def build_filter_dict(store_filter=None, display_filter=None) -> dict:
+    return {
+        "store": normalize_filter(store_filter),
+        "display": normalize_filter(display_filter),
+    }
+
+def read_filters(path: str | Path):
+    result = []
+    for entry in iter_json_objects(path):
+        if isinstance(entry, dict):
+            result.append({
+                "store": entry.get("store", ""),
+                "display": entry.get("display", ""),
+            })
+    if str(path).lower().endswith(".json"):
+        return result[0] if result else {}
+    return result
+
+def write_json(path: str | Path, data: dict):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def write_jsonl(path: str | Path, data: list[dict]):
+    with open(path, "w", encoding="utf-8") as f:
+        for entry in data:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+def write_filters(
+    path: str | Path = None,
+    simple_output: bool = False,
+    store_filter=None,
+    display_filter=None,
+):
+    path = path if path else new_file_path(f"pktparsers-filters{'.jsonl' if simple_output else '.json'}")
+    data = build_filter_dict(store_filter=store_filter, display_filter=display_filter)
+    if simple_path:
+        write_jsonl(path, data)
+        return
+    write_json(path, [data])
+```
+
+## File: src/pktparsers/io/reader.py
+```python
+"""
+Packet readers for various formats (pcap, pcapng, erf, json, jsonl).
+"""
+
+from pathlib import Path
+from typing import Generator
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+import dpkt
+
+from pktparsers.core.dissector import Dissector, DissectConfig
+from pktparsers.core.definitions import ERF_TYPE_TO_DLT, PARSED
+
+
+def _detect_format(path: Path) -> str:
+    """Detect file format from extension"""
+    suffix = path.suffix.lstrip(".").lower()
+    supported = ["pcap", "pcapng", "erf", "json", "jsonl"]
+    if suffix not in supported:
+        raise ValueError(f"Unsupported format: {suffix!r}")
+    return suffix
+
+
+def _read_pcap(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """Read .pcap file and dissect each packet"""
+    with open(path, "rb") as f:
+        reader = dpkt.pcap.Reader(f)
+        dlt = reader.datalink()
+        with Dissector(dlt, config) as dissector:
+            for _ts, raw in reader:
+                yield dissector.dissect(raw)
+
+
+def _read_pcapng(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """Read .pcapng file (may contain multiple interfaces with different DLTs)"""
+    dissectors: dict[int, Dissector] = {}
+    
+    with open(path, "rb") as f:
+        reader = dpkt.pcapng.Reader(f)
+        
+        # Pre-instantiate Dissector per interface
+        for iface_id, iface_info in enumerate(reader.interfaces):
+            dlt = iface_info.get("dlt") or iface_info.get("linktype")
+            if dlt is not None:
+                dissectors[iface_id] = Dissector(dlt, config)
+        
+        for _ts, raw, iface_id in reader:
+            dissector = dissectors.get(iface_id)
+            
+            if dissector is None:
+                # Runtime interface discovery
+                iface_info = reader.interfaces[iface_id]
+                dlt = iface_info.get("dlt") or iface_info.get("linktype")
+                dissectors[iface_id] = Dissector(dlt, config)
+                dissector = dissectors[iface_id]
+            
+            result = dissector.dissect(raw)
+            result["interface_id"] = iface_id
+            result["dlt"] = dissector.dlt
+            yield result
+
+
+def _read_erf(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """Read .erf file (link type varies per record)"""
+    dissectors: dict[int, Dissector] = {}
+    
+    with open(path, "rb") as f:
+        for record in dpkt.erf.ERF(f):
+            erf_type = record.type & 0x7F
+            dlt = ERF_TYPE_TO_DLT.get(erf_type)
+            
+            if dlt is None:
+                yield {
+                    "erf_type": erf_type,
+                    "dlt": None,
+                    PARSED: None,
+                    "error": f"Unsupported ERF type 0x{erf_type:02x}",
+                }
+                continue
+            
+            if erf_type not in dissectors:
+                dissectors[erf_type] = Dissector(dlt, config)
+            
+            result = dissectors[erf_type].dissect(bytes(record.data))
+            result["erf_type"] = erf_type
+            result["dlt"] = dlt
+            yield result
+
+
+def _read_json(path: Path) -> Generator[dict, None, None]:
+    """Read .json file (single list of objects)"""
+    import json
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        if isinstance(data, list):
+            for obj in data:
+                yield obj
+        else:
+            yield data
+
+
+def _read_jsonl(path: Path) -> Generator[dict, None, None]:
+    """Read .jsonl file (one JSON object per line)"""
+    import json
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
+
+
+def read(
+    path: Path,
+    config: DissectConfig = None,
+) -> Generator[dict, None, None]:
+    """
+    Read packets from any supported format.
+    
+    For json/jsonl: yields raw objects (no dissection).
+    For pcap/pcapng/erf: yields dissected results (if config provided).
+    
+    Args:
+        path: file path
+        config: DissectConfig (required for pcap/pcapng/erf)
+        
+    Yields:
+        dict: dissect result or raw JSON object
+    """
+    path = Path(path)
+    fmt = _detect_format(path)
+    
+    if fmt == "json":
+        yield from _read_json(path)
+    elif fmt == "jsonl":
+        yield from _read_jsonl(path)
+    elif fmt == "pcap":
+        yield from _read_pcap(path, config)
+    elif fmt == "pcapng":
+        yield from _read_pcapng(path, config)
+    elif fmt == "erf":
+        yield from _read_erf(path, config)
+```
+
+## File: src/pktparsers/io/writer.py
+```python
+# pktparsers/app/app.py
+
+import json
+from pathlib import Path
+
+def save_app_config(config: AppConfig, path: Path) -> None:
+    """Salva AppConfig em JSON. PTKs efêmeros NÃO são salvos."""
+    data = _strip_ephemeral(config.dissect)
+    path.write_text(json.dumps({"dissect": data, "output": config.output}, indent=2))
+
+def load_app_config(path: Path) -> AppConfig:
+    data = json.loads(path.read_text())
+    return AppConfig(
+        dissect=data.get("dissect", {}),
+        output=data.get("output", {}),
+    )
+
+def _strip_ephemeral(dissect: dict) -> dict:
+    """Remove PTKs derivados em tempo de execução antes de salvar em disco."""
+    import copy
+    d = copy.deepcopy(dissect)
+    dot11 = d.get("dlt", {}).get("DLT_IEEE802_11_RADIO", {}).get("crypt", {}).get("dot11", {})
+    for bssid_entry in dot11.values():
+        for client in bssid_entry.get("clients", {}).values():
+            client.pop("ptk", None)     # PTK: efêmero, não persiste
+            client.pop("anonce", None)  # nonces: específicos da sessão
+            client.pop("snonce", None)
+    return d
+```
+
+## File: src/pktparsers/tui/screens/dissect_config.py
+```python
+# pktparsers/tui/screens/dissect_config.py
+
+from textual.screen import ModalScreen
+from textual.widgets import ListView, ListItem, Label, Switch, Input
+
+class DissectConfigScreen(ModalScreen):
+    """
+    Modal gerado dinamicamente a partir de AppConfig.dissect.
+    Não tem nenhuma referência hardcoded a protocolos específicos.
+    """
+
+    def __init__(self, app_config: "AppConfig") -> None:
+        self._app_config = app_config
+        super().__init__()
+
+    def compose(self):
+        # Itera dlt configs e protocol configs do AppConfig
+        # Cada chave do config dict vira um widget baseado no tipo do valor:
+        #   bool  → Switch
+        #   str   → Input
+        #   dict  → sub-seção expandível
+        for section, configs in self._app_config.dissect.items():
+            yield Label(section)
+            yield from self._widgets_for(configs)
+
+    def _widgets_for(self, cfg: dict):
+        for key, val in cfg.items():
+            if isinstance(val, bool):
+                yield Switch(value=val, id=key)
+            elif isinstance(val, str):
+                yield Input(value=val, placeholder=key, id=key)
+            elif isinstance(val, dict):
+                yield Label(f"  {key}")
+                yield from self._widgets_for(val)
+```
+
+## File: src/pktparsers/tui/widgets/fieldeditor.py
+```python
+
+```
+
+## File: src/pktparsers/tui/widgets/hex_view.py
+```python
+# pktparsers/tui/widgets/hex_view.py
+
+from textual.widget import Widget
+from textual.reactive import reactive
+from rich.text import Text
+
+BYTES_PER_ROW = 16
+
+class HexView(Widget):
+    
+    highlight_start: reactive[int] = reactive(0)
+    highlight_end:   reactive[int] = reactive(0)
+
+    def load(self, raw_hex: str) -> None:
+        self._raw = bytes.fromhex(raw_hex)
+        self.refresh()
+
+    def set_highlight(self, start: int, end: int) -> None:
+        self.highlight_start = start
+        self.highlight_end   = end
+
+    def render(self) -> Text:
+        if not hasattr(self, "_raw"):
+            return Text()
+        text = Text()
+        for i, byte in enumerate(self._raw):
+            hl = self.highlight_start <= i < self.highlight_end
+            style = "bold white on dark_blue" if hl else ""
+            text.append(f"{byte:02x} ", style=style)
+            if (i + 1) % BYTES_PER_ROW == 0:
+                text.append("\n")
+        return text
+```
+
+## File: src/pktparsers/tui/widgets/packet_list.py
+```python
+# pktparsers/tui/widgets/packet_list.py
+
+from textual.widgets import DataTable
+from textual.message import Message
+
+class PacketList(DataTable):
+    
+    class PacketSelected(Message):
+        def __init__(self, index: int, parsed: dict, raw: str) -> None:
+            self.index  = index
+            self.parsed = parsed
+            self.raw    = raw
+            super().__init__()
+
+    class PacketEditRequested(Message):
+        def __init__(self, index: int, parsed: dict) -> None:
+            self.index  = index
+            self.parsed = parsed
+            super().__init__()
+```
+
+## File: src/pktparsers/tui/widgets/packet_tree.py
+```python
+# pktparsers/tui/widgets/packet_tree.py
+
+from textual.widgets import Tree
+from textual.widgets.tree import TreeNode
+from pktparsers.core.definitions.parsing import METADATA, PARSED, VALUE
+from pktparsers.core.definitions.analysis import SUMMARY
+
+class PacketTree(Tree):
+    """
+    Renderiza um dict parsed (resultado de Dissector.dissect) como árvore.
+    
+    Cada nó carrega o sub-dict correspondente para:
+      - Highlight sincronizado com HexView (via _metadata_.start/end)
+      - Context menu com Copy/As filter
+      - Edição de campo (se FieldEditor estiver ativo)
+    """
+    
+    def load_packet(self, parsed: dict) -> None:
+        self.clear()
+        self._build_node(self.root, parsed)
+        self.root.expand()
+
+    def _build_node(self, node: TreeNode, data: dict, key: str = "root") -> None:
+        meta     = data.get(METADATA, {})
+        parsed   = data.get(PARSED)
+        value    = data.get(VALUE)
+        summary  = data.get(SUMMARY)
+
+        label = self._make_label(key, parsed, value, summary, meta)
+        child = node.add(label, data=data)
+
+        if isinstance(parsed, dict):
+            for k, v in parsed.items():
+                if isinstance(v, dict):
+                    self._build_node(child, v, k)
+                else:
+                    child.add_leaf(f"{k}: {v}", data={VALUE: v})
+
+    def _make_label(self, key, parsed, value, summary, meta) -> str:
+        if summary:
+            return f"{key}  [{summary}]"
+        if value is not None and not isinstance(value, dict):
+            return f"{key}: {value}"
+        return key
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        data = event.node.data
+        if not data:
+            return
+        meta = data.get(METADATA, {})
+        # Emite mensagem para HexView sincronizar highlight
+        self.post_message(self.FieldFocused(
+            start=meta.get("start", 0),
+            end=meta.get("end", 0),
+            field_data=data,
+        ))
+
+    class FieldFocused(Message):
+        def __init__(self, start: int, end: int, field_data: dict) -> None:
+            self.start      = start
+            self.end        = end
+            self.field_data = field_data
+            super().__init__()
+```
+
+## File: src/pktparsers/tui/widgets/packettree.py
+```python
+
+```
+
+## File: src/pktparsers/tui/__init__.py
+```python
+"""
+Text User Interface widgets and application.
+
+Public widgets:
+    - HexView: hexadecimal view of raw bytes
+    - PacketTree: hierarchical packet structure
+    - PacketList: data table of packets
+    - FieldEditor: edit individual fields
+
+Application:
+    - TUIApp: main Textual application
+"""
+
+try:
+    from pktparsers.tui.widgets.hexview import HexView
+    from pktparsers.tui.widgets.packettree import PacketTree
+    from pktparsers.tui.widgets.packetlist import PacketList
+    from pktparsers.tui.widgets.fieldeditor import FieldEditor
+    from pktparsers.tui.app import TUIApp
+    
+    __all__ = [
+        "HexView",
+        "PacketTree",
+        "PacketList",
+        "FieldEditor",
+        "TUIApp",
+    ]
+except ImportError as e:
+    # TUI dependencies not available
+    __all__ = []
+    _IMPORT_ERROR = e
+```
+
+## File: src/pktparsers/tui/__main__.py
+```python
+from pktparsers.tui.main import main
+main()
+```
+
+## File: src/pktparsers/tui/main.py
+```python
+
+```
+
+## File: src/pktparsers/__main__.py
+```python
+from pktparsers.cli.main import main
+main()
+```
+
+## File: LICENSE
+```
+MIT License
+
+Copyright (c) 2026 Gustavo Araújo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## File: README.md
+```markdown
+# pktparsers
+Parsers for communication standards protocols
+```
+
+## File: src/pktparsers/app/app.py
+```python
+# pktparsers/app/app.py
+
+import json
+import copy
+from dataclasses import dataclass, field
+from pktparsers.io import OutputConfig
+from pktparsers.core.definitions import (
+    GLOBAL,
+    CRYPT,
+    PARSE,
+    ANALYSIS,
+    DLT,
+    PROTOCOL
+)
+from pktparsers.core import registry
+from pktparsers.core.analysis import make_config as make_analysis_config
+from pktparsers.core.parsing import make_config as make_parse_config
+from pktparsers.core.crypt import make_config as make_crypt_config
+from pathlib import Path
+
+@dataclass
+class Config:
+    """
+    Configuração raiz do pktparsers como framework.
+    Gerada por make_config() e serializada/carregada como JSON.
+    
+    Separação de responsabilidades:
+      - Config é o contrato serializado (pode ir para disco)
+      - DissectConfig é gerado a partir dela no momento de uso
+      - AppContext (app/context.py) gerencia paths e I/O de disco
+    """
+    dissect: dict = field(default_factory=dict)   # → gera DissectConfig
+    output:  dict = field(default_factory=dict)   # → gera OutputConfig
+
+def make_config() -> AppConfig:
+    """
+    Gera AppConfig lendo os CONFIGs registrados em registry.DLT e registry.PROTOCOL.
+    
+    Cada entry que tiver um CONFIG definido contribui com sua estrutura.
+    Entries sem CONFIG (MESH_CTRL, TDLS etc.) são ignoradas silenciosamente.
+    """
+    dlt_configs = {
+        entry.name: entry.config
+        for entry in registry.DLT.values()
+        if entry.config is not None
+    }
+
+    protocol_configs = {
+        name: entry.config
+        for name, entry in registry.PROTOCOL.items()
+        if entry.config is not None
+    }
+
+    return AppConfig(
+        dissect={
+            GLOBAL: {
+                CRYPT: make_crypt_config(),
+                PARSE: make_parse_config(),
+                ANALYSIS: make_analysis_config(),
+            },
+            DLT:      dlt_configs,
+            PROTOCOL: protocol_configs,
+        },
+        output={},
+    )
+```
+
+## File: src/pktparsers/app/context.py
+```python
+"""
+Application context: configuration, cache, log directories.
+"""
+
+import os
+import pwd
+from pathlib import Path
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+class Context:
+    """
+    Manages application directories and configuration.
+    
+    Attributes:
+        real_user: actual user (respects SUDO_USER)
+        home_dir: user's home directory
+        config_dir: ~/.config/pktparsers
+        cache_dir: ~/.cache/pktparsers
+        log_file: path to main log file
+    """
+    
+    def __init__(self, config: dict = None, log_file: Path = None, app_name: str = "pktparsers"):
+        self.config = config or {}
+        
+        # Determine real user (handle sudo)
+        self.real_user = os.environ.get("SUDO_USER") or os.getlogin()
+        pw = pwd.getpwnam(self.real_user)
+        self.home_dir = Path(pw.pw_dir)
+        
+        # Setup dirs
+        self.config_dir = self.home_dir / ".config" / app_name
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.config_dir.chmod(0o740)
+        
+        self.cache_dir = self.home_dir / ".cache" / app_name
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.chmod(0o740)
+        
+        self.log_file = log_file or (self.cache_dir / f"{app_name}.log")
+        
+        logger.debug(
+            f"AppContext initialized — user={self.real_user}, "
+            f"config_dir={self.config_dir}, log_file={self.log_file}"
+        )
+
+    def get_config_file(self, name: str) -> Path:
+        """Get path to config file"""
+        return self.config_dir / name
+
+    def get_cache_file(self, name: str) -> Path:
+        """Get path to cache file"""
+        return self.cache_dir / name
+```
+
+## File: src/pktparsers/cli/main.py
+```python
+#!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
+
+import argparse
+import argcomplete
+from pathlib import Path
+from core.bootstrap import init
+
+config = {
+    "module_dependencies": ["a", "b", "c"],
+    "system_dependencies": ["d", "e"],
+    "argparse": {}
+}
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging and save logs to file"
+    )
+    
+    parser.add_argument(
+        "--output", "-o",
+        type=Path,
+        help="Output fullpath to save debug logs to file"
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+
+    argcomplete.autocomplete(parser)
+
+    return parser
+
+def main():
+    parser = parse_args()
+    config["argparse"]["parser"] = parser
+    config["argparse"]["args"] = parser.parse_args()
+    result = init(config)
+    operations = result.operations
+    logger = getLogger(__name__)
+    operations.dispatch()
+
+if __name__ == "__main__":
+    main()
+```
+
+## File: src/pktparsers/core/definitions/analysis.py
+```python
+FIRST_SEEN = "first_seen"
+LAST_SEEN = "last_seen"
+TRAFFIC_SUMMARY = "traffic_summary"
+ANNOTATIONS = "annotations"
+DEVICES = "devices"
+```
+
+## File: src/pktparsers/core/definitions/parsing.py
+```python
+EUI48_FMT = "6s"
+EUI64_FMT = "8s"
+OUI_FMT = "3s"
+IPV4_FMT = "4s"
+IPV6_FMT = "16s"
+
+PARSED = "parsed"
+COUNTER = "counter"
+VALUE = "value"
+METADATA = "_metadata_"
+RAW = "raw"
+TOKENS = "tokens"
 ```
 
 ## File: src/pktparsers/core/filter_engine.py
@@ -3556,347 +4749,166 @@ def apply_filters(store_filter: str = None, display_filter: str = None, parsed_f
     return store_filter_result, display_filter_result
 ```
 
-## File: src/pktparsers/core/registry.py
-```python
-# pktparsers/core/registry.py
-
-# core/registry.py — agrega tudo, mantém flat
-from pktparsers.core.dissectors.ieee802 import registry as ieee802_registry
-from pktparsers.core.dissectors.inet    import registry as inet_registry
-from pktparsers.core.dissectors.bluetooth import registry as bt_registry
-# protocolos, dlts ou padrões simples, que não possuem sub-protocolos, ou que não estão associados à nenhum domínio/família como inet ou ieee80211, são registrados diretamente na tabela, como o no caso de ARP
-from pktparsers.core.dissectors.arp import parse as arp_parse
-import pktparsers.core.definitions.protocol as proto
-import pktparsers.core.definitions.entries as (L2, L3, L4, L7)
-
-DLT: dict[int, DissectorEntry] = {
-    **ieee802_registry.DLT,
-    **inet_registry.DLT,
-    **bt_registry.DLT,
-}
-
-PROTOCOL: dict[str, DissectorEntry] = {
-    **ieee802_registry.PROTOCOL,
-    **inet_registry.PROTOCOL,
-    **bt_registry.PROTOCOL,
-    # arp diretamente aqui
-    proto.ARP: DissectorEntry(
-        description="Address Resolution Protocol",
-        layer=L3,
-        parser=arp_parse.arp,
-        config=None,
-    ),
-}
-
-def get_protocol(protocol_name: str) -> DissectorEntry | None:
-    return PROTOCOL.get(protocol_name)
-
-
-def get_protocol_parser(protocol_name: str):
-    protocol = get_protocol(protocol_name)
-
-    if not protocol:
-        return None
-
-    return protocol.parser
-
-
-def get_dlt(dlt_value: str | int) -> DissectorEntry | None:
-    if isinstance(dlt_value, str):
-        return next(
-            (entry for entry in DLT.values() if entry.name == dlt_value),
-            None,
-        )
-
-    return DLT.get(dlt_value)
-
-
-def get_dlt_parser(dlt_value: str | int):
-    dlt_entry = get_dlt(dlt_value)
-
-    if not dlt_entry:
-        return None
-
-    return dlt_entry.parser
-```
-
-## File: src/pktparsers/tui/widgets/fieldeditor.py
-```python
-
-```
-
-## File: src/pktparsers/tui/widgets/packettree.py
-```python
-
-```
-
-## File: src/pktparsers/tui/__init__.py
-```python
-"""
-Text User Interface widgets and application.
-
-Public widgets:
-    - HexView: hexadecimal view of raw bytes
-    - PacketTree: hierarchical packet structure
-    - PacketList: data table of packets
-    - FieldEditor: edit individual fields
-
-Application:
-    - TUIApp: main Textual application
-"""
-
-try:
-    from pktparsers.tui.widgets.hexview import HexView
-    from pktparsers.tui.widgets.packettree import PacketTree
-    from pktparsers.tui.widgets.packetlist import PacketList
-    from pktparsers.tui.widgets.fieldeditor import FieldEditor
-    from pktparsers.tui.app import TUIApp
-    
-    __all__ = [
-        "HexView",
-        "PacketTree",
-        "PacketList",
-        "FieldEditor",
-        "TUIApp",
-    ]
-except ImportError as e:
-    # TUI dependencies not available
-    __all__ = []
-    _IMPORT_ERROR = e
-```
-
-## File: src/pktparsers/tui/__main__.py
-```python
-from pktparsers.tui.main import main
-main()
-```
-
 ## File: src/pktparsers/tui/app.py
 ```python
 def on_packet_tree_field_focused(self, event: PacketTree.FieldFocused) -> None:
     self.query_one(HexView).set_highlight(event.start, event.end)
 ```
 
-## File: src/pktparsers/tui/main.py
+## File: src/pktparsers/__init__.py
 ```python
+"""
+pktparsers — comprehensive packet parsing and analysis framework
 
-```
+Public API:
+    Core parsing:
+        - Dissector: main class for packet dissection
+        - DissectConfig: configuration for Dissector
+        - ParseContext: context manager for parsing
+        
+    I/O operations:
+        - read(): read packets from file (pcap, pcapng, erf, json, jsonl)
+        - write(): write packets to file
+        - PacketWriter: incremental packet writer with size limits
+        - merge_packets(): merge packets from multiple sources
+        
+    Filtering:
+        - apply_filters(): execute store/display filters
+        - get_nested(): navigate nested parsed results
+        
+    Utilities:
+        - HexView, PacketTree, FieldEditor: TUI widgets
+        - AppContext: CLI application context
+        - ProtocolEntry, DltEntry: registry entries
+"""
 
-## File: src/pktparsers/__main__.py
-```python
-from pktparsers.cli.main import main
-main()
-```
+__version__ = "0.1.0"
 
-## File: LICENSE
-```
-MIT License
-
-Copyright (c) 2026 Gustavo Araújo
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-## File: README.md
-```markdown
-# pktparsers
-Parsers for communication standards protocols
-```
-
-## File: src/pktparsers/app/app.py
-```python
-# pktparsers/app/app.py
-
-import json
-import copy
-from dataclasses import dataclass, field
-from pktparsers.io import OutputConfig
-from pktparsers.core.definitions import (
-    GLOBAL,
-    CRYPT,
-    PARSE,
-    ANALYSIS,
-    DLT,
-    PROTOCOL
+# Core APIs
+from pktparsers.core.dissector import (
+    Dissector,
+    DissectConfig,
+    AnalysisConfig,
+    CredentialsConfig,
 )
-from pktparsers.core import registry
-from pktparsers.core.analysis import make_config as make_analysis_config
-from pktparsers.core.parsing import make_config as make_parse_config
-from pktparsers.core.crypt import make_config as make_crypt_config
-from pathlib import Path
+from pktparsers.core.parsing import ParseContext
+from pktparsers.core.traffic import TrafficContext
+from pktparsers.core.registry import (
+    ProtocolEntry,
+    DltEntry,
+    get_dlt_parser,
+    get_protocol,
+)
+from pktparsers.core.filter_engine import apply_filters, get_nested
 
-@dataclass
-class Config:
-    """
-    Configuração raiz do pktparsers como framework.
-    Gerada por make_config() e serializada/carregada como JSON.
-    
-    Separação de responsabilidades:
-      - Config é o contrato serializado (pode ir para disco)
-      - DissectConfig é gerado a partir dela no momento de uso
-      - AppContext (app/context.py) gerencia paths e I/O de disco
-    """
-    dissect: dict = field(default_factory=dict)   # → gera DissectConfig
-    output:  dict = field(default_factory=dict)   # → gera OutputConfig
+# I/O APIs
+from pktparsers.io.reader import read
+from pktparsers.io.writer import write, PacketWriter, merge_packets
+from pktparsers.io.filters import read_filters, write_filters
 
-def make_config() -> AppConfig:
-    """
-    Gera AppConfig lendo os CONFIGs registrados em registry.DLT e registry.PROTOCOL.
-    
-    Cada entry que tiver um CONFIG definido contribui com sua estrutura.
-    Entries sem CONFIG (MESH_CTRL, TDLS etc.) são ignoradas silenciosamente.
-    """
-    dlt_configs = {
-        entry.name: entry.config
-        for entry in registry.DLT.values()
-        if entry.config is not None
-    }
-
-    protocol_configs = {
-        name: entry.config
-        for name, entry in registry.PROTOCOL.items()
-        if entry.config is not None
-    }
-
-    return AppConfig(
-        dissect={
-            GLOBAL: {
-                CRYPT: make_crypt_config(),
-                PARSE: make_parse_config(),
-                ANALYSIS: make_analysis_config(),
-            },
-            DLT:      dlt_configs,
-            PROTOCOL: protocol_configs,
-        },
-        output={},
+# TUI widgets (optional import)
+try:
+    from pktparsers.tui.widgets import (
+        HexView,
+        PacketTree,
+        PacketList,
+        FieldEditor,
     )
+    _HAS_TUI = True
+except ImportError:
+    _HAS_TUI = False
+
+# CLI context (optional)
+try:
+    from pktparsers.app.context import AppContext
+    from pktparsers.app.bootstrap import AppBootstrap
+except ImportError:
+    AppContext = None
+    AppBootstrap = None
+
+__all__ = [
+    # Core
+    "Dissector",
+    "DissectConfig",
+    "ParseContext",
+    "TrafficContext",
+    "ProtocolEntry",
+    "DltEntry",
+    "get_dlt_parser",
+    "get_protocol",
+    "raw_packet_extractor",
+    # Filters
+    "apply_filters",
+    "get_nested",
+    # I/O
+    "read",
+    "write",
+    "PacketWriter",
+    "merge_packets",
+    "read_filters",
+    "write_filters",
+    # TUI (conditional)
+    "HexView",
+    "PacketTree",
+    "PacketList",
+    "FieldEditor",
+    # Apps
+    "AppContext",
+    "AppBootstrap",
+]
 ```
 
-## File: src/pktparsers/app/context.py
-```python
-"""
-Application context: configuration, cache, log directories.
-"""
+## File: pyproject.toml
+```toml
+[project]
+name = "pktparsers"
+version = "1.0.0"
+description = "Extensible framework for dissecting and creating protocol packets and parsers."
+readme = "README.md"
+requires-python = ">=3.12"
 
-import os
-import pwd
-from pathlib import Path
-from logging import getLogger
+authors = [
+    { name = "Gustavo Araújo" }
+]
 
-logger = getLogger(__name__)
+dependencies = [
+    "dpkt==1.9.8",
+    "textual==6.2.1",
+    "rich==14.3.3",
+    "argcomplete",
+    "cli-core @ git+https://github.com/gusprojects008/cli-core.git@v1.0.0"
+]
 
-class Context:
-    """
-    Manages application directories and configuration.
-    
-    Attributes:
-        real_user: actual user (respects SUDO_USER)
-        home_dir: user's home directory
-        config_dir: ~/.config/pktparsers
-        cache_dir: ~/.cache/pktparsers
-        log_file: path to main log file
-    """
-    
-    def __init__(self, config: dict = None, log_file: Path = None, app_name: str = "pktparsers"):
-        self.config = config or {}
-        
-        # Determine real user (handle sudo)
-        self.real_user = os.environ.get("SUDO_USER") or os.getlogin()
-        pw = pwd.getpwnam(self.real_user)
-        self.home_dir = Path(pw.pw_dir)
-        
-        # Setup dirs
-        self.config_dir = self.home_dir / ".config" / app_name
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.config_dir.chmod(0o740)
-        
-        self.cache_dir = self.home_dir / ".cache" / app_name
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_dir.chmod(0o740)
-        
-        self.log_file = log_file or (self.cache_dir / f"{app_name}.log")
-        
-        logger.debug(
-            f"AppContext initialized — user={self.real_user}, "
-            f"config_dir={self.config_dir}, log_file={self.log_file}"
-        )
+keywords = [
+    "engine",
+    "framework",
+    "parsers",
+    "dissection",
+    "dissectors",
+    "network",
+    "sniffer",
+    "packets",
+    "ethernet",
+    "wifi",
+    "bluetooth",
+    "security"
+]
 
-    def get_config_file(self, name: str) -> Path:
-        """Get path to config file"""
-        return self.config_dir / name
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Topic :: System :: Networking",
+    "Topic :: Security"
+]
 
-    def get_cache_file(self, name: str) -> Path:
-        """Get path to cache file"""
-        return self.cache_dir / name
-```
+[project.scripts]
+pktparsers = "pktparsers.cli.main:main"
+pktparsers-tui = "pktparsers.tui.main:main"
 
-## File: src/pktparsers/cli/main.py
-```python
-#!/usr/bin/env python3
-# PYTHON_ARGCOMPLETE_OK
-
-import argparse
-import argcomplete
-from pathlib import Path
-from core.bootstrap import init
-
-config = {
-    "module_dependencies": ["a", "b", "c"],
-    "system_dependencies": ["d", "e"],
-    "argparse": {}
-}
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging and save logs to file"
-    )
-    
-    parser.add_argument(
-        "--output", "-o",
-        type=Path,
-        help="Output fullpath to save debug logs to file"
-    )
-
-    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
-
-    argcomplete.autocomplete(parser)
-
-    return parser
-
-def main():
-    parser = parse_args()
-    config["argparse"]["parser"] = parser
-    config["argparse"]["args"] = parser.parse_args()
-    result = init(config)
-    operations = result.operations
-    logger = getLogger(__name__)
-    operations.dispatch()
-
-if __name__ == "__main__":
-    main()
+[tool.setuptools.packages.find]
+include = ["pktparsers*"]
 ```
 
 ## File: src/pktparsers/core/analysis.py
@@ -3925,14 +4937,13 @@ import time
 from contextvars import ContextVar
 from logging import getLogger
 from pktparsers.core.parsing import insert_item
-from pktparsers.core.registry import get_dlt_parser
+from pktparsers.core.registry import get_dissector_parser
 from pktparsers.core.traffic import TrafficContext
 from pktparsers.core.definitions.result import TIMESTAMP
 from pktparsers.core.definitions.parsing import (PARSED, RAW, COUNTER)
-from pktparsers.core import registry
+from pktparsers.core.dissectors import registry
 from pktparsers.core.analysis import make_config as make_analysis_config
-from pktparsers.core.definitions.entries import (PROTOCOL, ANALYSIS, CRYPT, DLT, PARSE, TRAFFIC_SUMMARY)
-from pktparsers.core.definitions.entries import TIMESTAMP
+from pktparsers.core.definitions.entries import (PROTOCOL, ANALYSIS, CRYPT, DLT, PARSE, TRAFFIC_SUMMARY, VALUE, CACHED, TIMESTAMP)
 
 logger = getLogger(__name__)
 
@@ -3955,18 +4966,19 @@ class Dissector:
             dissector.__exit__()
     """
     
-    def __init__(self, dissector_id str | int, config: DissectConfig = None):
+    def __init__(self, dissector_id str | int = DLT_IEEE802_11_RADIO, config: DissectConfig = DissectConfig()):
         """
         Args:
             dissector_id: protocol name or DLT type as string ("DLT_IEEE802_11_RADIO") or int (127)
             config: DissectConfig instance (default: empty config)
         """
         self.dissector_id = dissector_id
-        self.config = config or DissectConfig()
+        self.config = config
         self.parser = get_dissector_parser(self.dissector_id)
         self.traffic_ctx = TrafficContext()
         self.counter = 0
         self._token = None
+        self._key_cache: dict[str, dict[str, bytes]] = {}
 
     def __enter__(self):
         """Set this dissector as current in context var"""
@@ -3983,13 +4995,33 @@ class Dissector:
         """Get current Dissector from context"""
         return _dissector_context.get(None)
 
+    def cache_key(self, device_id: str, dissector_id: int | str, key: bytes) -> None:
+        self._key_cache.setdefault(device_id, {})[dissector_id] = key
+
+    def get_cached_key(self, device_id: str, dissector_id: int | str) -> bytes | None:
+        return self._key_cache.get(device_id, {}).get(dissector_id)
+
     @classmethod
-    def get_credentials(cls, protocol: str, key: str = None) -> dict | None:
+    def get_credentials(cls, dissector_id: int | str, address: str = None) -> list[dict]:
+        """
+        Retorna lista de keys configuradas para o protocolo.
+        `address` é hint — se o engine já tem cache para aquele device, retorna
+        direto sem tentativa e erro.
+        """
         ctx = cls.current()
         if not ctx:
-            return None
-        creds = ctx.config.credentials.get(protocol, {})
-        return creds.get(key) if key else creds
+            return []
+    
+        # 1. Verifica cache primeiro
+        if address:
+            cached = ctx.get_cached_key(address, dissector_id)
+            if cached:
+                return [{TYPE: CACHED, VALUE: cached}]
+    
+        # 2. Retorna lista de credentials configuradas (tentativa e erro)
+        proto_config = ctx.config.get(dissector_id, {})
+        return proto_config.get(CRYPT, {}).get(CREDENTIALS, {}).get(KEYS, [])
+
 
     def dissect(self, packet: bytes, offset: int = 0) -> dict:
         """
@@ -4047,7 +5079,7 @@ def make_config() -> AppConfig:
             "parse":    {},   # make_config() de core/parsing.py (generate_parse_config)
             "analysis": {"traffic_summary": True}  # make_config() de core/analysis.py
         },
-        "dlt": {
+        "dissectors": {
             "DLT_IEEE802_11_RADIO": {
                 "crypt": {"credentials": {"bssid": {}}, "config": {}},   # dot11_radio/crypt.py make_config()
                 "parse": {"assume_fcs": False},        # dot11_radio/parse.py make_config()
@@ -4059,21 +5091,18 @@ def make_config() -> AppConfig:
                 "analysis": {},
             },
             ...
-        },
-        "protocol": {
-            "ieee802.eap": {"parse": {}, "crypt": {"credentials": {"PEAP": {"identity": "usuario", "password": "senha", "ca_cert": "/path/to/ca.pem"}}, "config": {}}, "analysis": {}},
-            "ieee802.eapol": {"parse": {}, "crypt": {"credentials": {}, "config": {}}, "analysis": {}},
+            "ieee802_eap": {"parse": {}, "crypt": {"credentials": {}, "config": {}}, "analysis": {}},
+            "ieee802_eapol": {"parse": {}, "crypt": {"credentials": {}, "config": {}}, "analysis": {}},
             ...
         }
     }
     """
-    dlt_configs = {
-        entry.name: entry.config
-        for entry in registry.DLT.values()
-        if entry.config is not None
-    }
 
-    protocol_configs = {name: entry.config for name, entry in registry.PROTOCOL.items() if entry.config}
+    configs = {
+        name: entry.config
+        for name, entry in registry.DISSECTORS.items()
+        if entry.config
+    }
 
     return AppConfig(
         dissect={
@@ -4082,8 +5111,7 @@ def make_config() -> AppConfig:
                 PARSE:    {},
                 ANALYSIS: make_analysis_config(),
             },
-            DLT:      dlt_configs,
-            PROTOCOL: protocol_configs,
+            DISSECTORS: configs
         },
         output={},
     )
@@ -4625,160 +5653,4 @@ class TrafficContext:
     @classmethod
     def current(cls) -> "TrafficContext | None":
         return _traffic_context.get(None)
-```
-
-## File: src/pktparsers/__init__.py
-```python
-"""
-pktparsers — comprehensive packet parsing and analysis framework
-
-Public API:
-    Core parsing:
-        - Dissector: main class for packet dissection
-        - DissectConfig: configuration for Dissector
-        - ParseContext: context manager for parsing
-        
-    I/O operations:
-        - read(): read packets from file (pcap, pcapng, erf, json, jsonl)
-        - write(): write packets to file
-        - PacketWriter: incremental packet writer with size limits
-        - merge_packets(): merge packets from multiple sources
-        
-    Filtering:
-        - apply_filters(): execute store/display filters
-        - get_nested(): navigate nested parsed results
-        
-    Utilities:
-        - HexView, PacketTree, FieldEditor: TUI widgets
-        - AppContext: CLI application context
-        - ProtocolEntry, DltEntry: registry entries
-"""
-
-__version__ = "0.1.0"
-
-# Core APIs
-from pktparsers.core.dissector import (
-    Dissector,
-    DissectConfig,
-    AnalysisConfig,
-    CredentialsConfig,
-)
-from pktparsers.core.parsing import ParseContext
-from pktparsers.core.traffic import TrafficContext
-from pktparsers.core.registry import (
-    ProtocolEntry,
-    DltEntry,
-    get_dlt_parser,
-    get_protocol,
-)
-from pktparsers.core.filter_engine import apply_filters, get_nested
-
-# I/O APIs
-from pktparsers.io.reader import read
-from pktparsers.io.writer import write, PacketWriter, merge_packets
-from pktparsers.io.filters import read_filters, write_filters
-
-# TUI widgets (optional import)
-try:
-    from pktparsers.tui.widgets import (
-        HexView,
-        PacketTree,
-        PacketList,
-        FieldEditor,
-    )
-    _HAS_TUI = True
-except ImportError:
-    _HAS_TUI = False
-
-# CLI context (optional)
-try:
-    from pktparsers.app.context import AppContext
-    from pktparsers.app.bootstrap import AppBootstrap
-except ImportError:
-    AppContext = None
-    AppBootstrap = None
-
-__all__ = [
-    # Core
-    "Dissector",
-    "DissectConfig",
-    "ParseContext",
-    "TrafficContext",
-    "ProtocolEntry",
-    "DltEntry",
-    "get_dlt_parser",
-    "get_protocol",
-    "raw_packet_extractor",
-    # Filters
-    "apply_filters",
-    "get_nested",
-    # I/O
-    "read",
-    "write",
-    "PacketWriter",
-    "merge_packets",
-    "read_filters",
-    "write_filters",
-    # TUI (conditional)
-    "HexView",
-    "PacketTree",
-    "PacketList",
-    "FieldEditor",
-    # Apps
-    "AppContext",
-    "AppBootstrap",
-]
-```
-
-## File: pyproject.toml
-```toml
-[project]
-name = "pktparsers"
-version = "1.0.0"
-description = "Extensible framework for dissecting and creating protocol packets and parsers."
-readme = "README.md"
-requires-python = ">=3.12"
-
-authors = [
-    { name = "Gustavo Araújo" }
-]
-
-dependencies = [
-    "dpkt==1.9.8",
-    "textual==6.2.1",
-    "rich==14.3.3",
-    "argcomplete",
-    "cli-core @ git+https://github.com/gusprojects008/cli-core.git@v1.0.0"
-]
-
-keywords = [
-    "engine",
-    "framework",
-    "parsers",
-    "dissection",
-    "dissectors",
-    "network",
-    "sniffer",
-    "packets",
-    "ethernet",
-    "wifi",
-    "bluetooth",
-    "security"
-]
-
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Operating System :: POSIX :: Linux",
-    "Environment :: Console",
-    "Topic :: System :: Networking",
-    "Topic :: Security"
-]
-
-[project.scripts]
-pktparsers = "pktparsers.cli.main:main"
-pktparsers-tui = "pktparsers.tui.main:main"
-
-[tool.setuptools.packages.find]
-include = ["pktparsers*"]
 ```
